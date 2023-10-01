@@ -1,0 +1,906 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © sammie123567858
+
+
+
+//@description:
+
+// 📝 BRIEF OVERVIEW
+// this has been derived from the Multi Oscillator_swing high/low indicator. 
+// this has divergence ao logic 1 & 2
+// this does not have same side divergences
+
+
+
+// 🖌️ WHAT IT DRAWS
+
+// - draws lines like zigzag to show swing highs/lows based on the oscillator you choose 
+//   (ao, macd 4c, rsi, kernel ao oscillator) 
+
+// - draws divergences ONLY for the kernel ao oscillator
+//   It draws divergences with ao logic 1 (regular & hidden) 
+//   It draws divergences with logic 2 (regular & hidden)
+
+// - draws range shift 
+
+// - kernel crossover indicator 
+
+// - nadaraya watson kernel indicator (which is known as the signal line)
+
+// - LC (lorentzian classification)
+
+
+
+
+
+
+
+
+
+
+
+
+//@version=5
+indicator("Kernel AO Divergence", overlay = true, format = format.price, max_bars_back=5000, max_lines_count = 500, precision = 5)                                            
+
+//importing Justin Dehortys libraries
+import jdehorty/MLExtensions/2 as ml
+import jdehorty/KernelFunctions/2 as kernels
+// importing my ao divergence library
+import sammie123567858/AoDivergenceLibrary_/5 as aoDiv
+// importing my indicator library
+import sammie123567858/Indicators/4 as indicator
+
+
+// option for oscillator
+useAo = input.bool(false, 'Show AO swings?', tooltip = 'display the swing high/low lines which are based off the AO indicator', group = 'AO Display')
+useMacd4c = input.bool(false, 'Show MACD 4C swings?', tooltip = 'display the swing high/low lines which are based off the MACD 4C indicator', group = 'MACD Display')
+useRsi = input.bool(false, 'Show RSI swings?', tooltip = 'display the swing high/low lines which are based off the RSI indicator', group = 'RSI Display')
+useKernelOsc = input.bool(true, 'Show Kernel AO swing high/low legs?', tooltip = 'display the swing high/low lines which are based off the kernel ao oscillator indicator', group = 'KERNEL Display')
+useLC = input.bool(false, 'Show LC?', tooltip = 'show the lorentzian classification indicator', group = 'LC Display')
+
+useKernelReg = input.bool(false, "Show Kernel Reg Divergence with logic 1?", group="Divergence")
+useKernelHid = input.bool(false, "Show Kernel Hid Divergence with logic 1?", group="Divergence")
+useKernelReg2 = input.bool(false, "Show Kernel Reg Divergence with logic 2?", group="Divergence")
+useKernelHid2 = input.bool(false, "Show Kernel Hid Divergence with logic 2?", group="Divergence")
+
+
+useKernel = input.bool(false, 'Show AO Kernel Crossover Lines?', tooltip = 'show the kernel lines which are used for kernel ao oscillator', group = 'Display')
+useSignalKernel = input.bool(false, 'Show Signal Line?', tooltip = 'show the nadaraya watson kernel indicator lines', group = 'Display')
+useRangeShift = input.bool(false, 'Show Range Shift?', tooltip = 'show the background colors on the chart for range shift', group = 'Display')
+Show_zz = input.bool(false, "Show Zigzag?", group="Display")
+
+
+
+
+
+
+// ao style inputs
+widthAo = input.int(1, 'Line Width', 1, group = 'AO Style')
+AoColor = input.color(#0ccb05, 'Line Color', group = 'AO Style')
+
+// macd style inputs
+widthMacd = input.int(1, 'Line Width', 1, group = 'macd Style')
+MacdColor = input.color(#cb6805, 'Line Color', group = 'macd Style')
+
+// rsi style inputs
+widthRsi = input.int(1, 'Line Width', 1, group = 'rsi Style')
+RsiColor = input.color(#780086, 'Line Color', group = 'rsi Style')
+
+// kernel ao oscillator style inputs
+widthKernelOsc = input.int(1, 'Swing High/Low Width', 1, group = 'kernel ao oscillator Style')
+KernelOscColor = input.color(#05a7cb, 'Swing High/Low Color', group = 'kernel ao oscillator Style')
+KernelHDColor1 = input.color(#ffd000, 'HD Logic 1 Color', group = 'kernel ao oscillator Style')
+KernelRDColor1 = input.color(#ffa726, 'RD Logic 1 Color', group = 'kernel ao oscillator Style')
+KernelRDColor2 = input.color(#ff00f7, 'RD Logic 2 Color', group = 'kernel ao oscillator Style')
+KernelHDColor2 = input.color(#b3007d, 'HD Logic 2 Color', group = 'kernel ao oscillator Style')
+
+
+
+
+
+
+//zigzag inputs
+Depth       = input.int(144, "Depth", minval=1, step=1, group="Zigzag Settings (for Divergence)")
+Deviation   = input.int(75, "Deviation", minval=1, step=1, group="Zigzag Settings (for Divergence)")
+Backstep    = input.int(15, "Backstep", minval=2, step=1, group="Zigzag Settings (for Divergence)")
+line_thick  = input.int(1, "Line Thickness", minval=1, maxval=4, group="Zigzag Settings (for Divergence)")
+text_color  = input.color(color.white, "Text color for labels of zigzag", group="Zigzag Settings (for Divergence)")
+repaint     = input(false, "Repaint Levels", group="Zigzag Settings (for Divergence)")
+
+
+//fast Kernel line inputs
+float kernelFastWeight = input.float(8, "Rel Weight", 0 , 50, step = 0.2, group = "Fast AO Kernel Settings")
+int kernelFastLookback = input.int(5, "Lookback",2 , 500, group = "Fast AO Kernel Settings")
+int kernelFastRegressionStart = input.int(25, "Regression Start",2 , 400, group = "Fast AO Kernel Settings")
+bool kernelFastSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Fast AO Kernel Settings")
+int kernelFastSmoothPeriod = input.int(4, "",2 , 200, inline = "Smooth", group = "Fast AO Kernel Settings")
+
+//slow Kernel line inputs
+float kernelSlowWeight = input.float(3, "Rel Weight", 0 , 5, step = 0.2, group = "Slow AO Kernel Settings")
+int kernelSlowLookback = input.int(34, "Lookback",2 , 500, group = "Slow AO Kernel Settings")
+int kernelSlowRegressionStart = input.int(120, "Regression Start",2 , 400, group = "Slow AO Kernel Settings")
+bool kernelSlowSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Slow AO Kernel Settings")
+int kernelSlowSmoothPeriod = input.int(40, "",2 , 200, inline = "Smooth", group = "Slow AO Kernel Settings")
+
+// signal line kernel
+_src = input.source(close, 'Source', group='Signal Line Settings')
+h = input.float(8., 'Lookback Window', minval=3., tooltip='The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50', group='Signal Line Settings')
+r = input.float(8., 'Relative Weighting', step=0.25, tooltip='Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25', group='Signal Line Settings')
+x_0 = input.int(25, "Start Regression at Bar", tooltip='Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25', group='Signal Line Settings')
+smoothColors = input.bool(false, "Smooth Colors", tooltip="Uses a crossover based mechanism to determine colors. This often results in less color transitions overall.", inline='1', group='Signal Line Settings')
+lag = input.int(2, "Lag", tooltip="Lag for crossover detection. Lower values result in earlier crossovers. Recommended range: 1-2", inline='1', group='Signal Line Settings')
+
+// macd 4c inputs
+fastMA = input.int(title="Fast moving average", defval = 12, minval = 7, group = 'MACD 4C settings')
+slowMA = input.int(title="Slow moving average", defval = 26, minval = 7, group = 'MACD 4C settings')
+
+// rsi inputs
+rsiLengthInput = input.int(14, minval=1, title="RSI Length", group="RSI Settings")
+rsiSourceInput = input.source(close, "Source", group="RSI Settings")
+rsiOb = input.float(60, title="Overbought level", group="RSI Settings")
+rsiOs = input.float(40, title="Oversold level", group="RSI Settings")
+
+bullRangeTop = input.float(80, title="Bull Range Top for Shading Background ", tooltip = 'the UPPER price level of the BULLISH range. Default is 80.', group="RSI Settings")
+bullRangeBottom = input.float(60, title="Bull Range Bottom for Shading Background ", tooltip = 'the LOWER price level of the BULLISH range. Default is 60.', group="RSI Settings")
+bearRangeTop = input.float(40, title="Bear Range Top for Shading Background", tooltip = 'the UPPER price level of the BEARISH range. Default is 40.', group="RSI Settings")
+bearRangeBottom = input.float(20, title="Bear Range Bottom for Shading Background ", tooltip = 'the LOWER price level of the BEARISH range. Default is 20.', group="RSI Settings")
+bearRangeColor = input.color(#c206061d, title="Bear Range Color for Shading Background ", tooltip = 'colors the background if the rsi is in a BEARISH range. The default range is 40-20.', group="RSI Settings")
+bullRangeColor = input.color(#1cc2061e, title="Bull Range Color for Shading Background ", tooltip = 'colors the background if the rsi is in a BULLISH range. The default range is 80-60.', group="RSI Settings")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// CALCULATION FOR INDICATORS
+
+// macd 4c indicator
+macd = float(na)
+if useMacd4c
+    macd := indicator.macd4C(fastMA, slowMA)
+//
+
+
+// rsi indicator
+rsi = float(na)
+if useRsi or useRangeShift
+    rsi := indicator.rsi(rsiSourceInput, rsiLengthInput)
+//
+
+
+//ao indicator 
+ao = float(na)
+if useAo
+    ao := indicator.ao()
+//
+
+
+// kernel ao oscillator indicator
+// this calculation could not be put in a library because there was something unknown going wrong with isPurple's calculation. 
+// Likely because it was in an if statement
+float kernelFast = 0
+float kernelSlow = 0
+float osc = 0
+bool isPurple = false
+color kernelFastColor = color(na)
+color kernelSlowColor = color(na)
+
+kernelFast := kernels.rationalQuadratic(close, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+if kernelFastSmooth
+    kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
+kernelFastRising = ta.rising(kernelFast, 1)
+kernelFastColor := kernelFastRising ? #542772 : #df4774
+
+kernelSlow := kernels.rationalQuadratic(close, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+if kernelSlowSmooth
+    kernelSlow := ta.sma(kernelSlow, kernelSlowSmoothPeriod)
+kernelSlowRising = ta.rising(kernelSlow, 1)
+kernelSlowColor := kernelSlowRising ? #542772 : #df4774
+
+osc := kernelFast - kernelSlow
+diff = osc - osc[1]
+isPurple := diff <= 0 ? false : true
+//
+
+plot(useKernel ? kernelFast:na, "Kernel Fast", kernelFastColor, 1)
+plot(useKernel ? kernelSlow:na, "Kernel Slow", kernelSlowColor, 1)
+
+
+
+// signal line kernel indicator
+_yhat1 = float(na)
+_plotColor = color(na)
+if useSignalKernel
+    [yhat1, l, s, c_bu, c_be, plotColor] = indicator.signalLineKernel(lag, h, r, x_0, smoothColors)
+    _yhat1 := yhat1
+    _plotColor := plotColor
+//
+plot(useSignalKernel ? _yhat1:na, "Rational Quadratic Kernel Estimate", color=_plotColor, linewidth=1)
+
+
+
+
+//LC indicator
+type Settings
+    float source
+    int neighborsCount
+    int maxBarsBack
+    int featureCount
+    int colorCompression
+    bool showExits
+    bool useDynamicExits
+
+Settings settings = 
+ Settings.new(
+   input.source(title='Source', defval=close, group="General Settings", tooltip="Source of the input data"),
+   input.int(title='Neighbors Count', defval=8, group="General Settings", minval=1, maxval=100, step=1, tooltip="Number of neighbors to consider"),
+   input.int(title="Max Bars Back", defval=2000, group="General Settings"),
+   input.int(title="Feature Count", defval=5, group="Feature Engineering", minval=2, maxval=5, tooltip="Number of features to use for ML predictions."),
+   input.int(title="Color Compression", defval=1, group="General Settings", minval=1, maxval=10, tooltip="Compression factor for adjusting the intensity of the color scale."),
+   input.bool(title="Show Default Exits", defval=false, group="General Settings", tooltip="Default exits occur exactly 4 bars after an entry signal. This corresponds to the predefined length of a trade during the model's training process.", inline="exits"),
+   input.bool(title="Use Dynamic Exits", defval=false, group="General Settings", tooltip="Dynamic exits attempt to let profits ride by dynamically adjusting the exit threshold based on kernel regression logic.", inline="exits")
+ )
+
+type FilterSettings 
+    bool useVolatilityFilter
+    bool useRegimeFilter
+    bool useAdxFilter
+    float regimeThreshold
+    int adxThreshold
+
+FilterSettings filterSettings =
+ FilterSettings.new(
+   input.bool(title="Use Volatility Filter", defval=true, tooltip="Whether to use the volatility filter.", group="Filters"),
+   input.bool(title="Use Regime Filter", defval=true, group="Filters", inline="regime"),
+   input.bool(title="Use ADX Filter", defval=false, group="Filters", inline="adx"),
+   input.float(title="Threshold", defval=-0.1, minval=-10, maxval=10, step=0.1, tooltip="Whether to use the trend detection filter. Threshold for detecting Trending/Ranging markets.", group="Filters", inline="regime"),
+   input.int(title="Threshold", defval=20, minval=0, maxval=100, step=1, tooltip="Whether to use the ADX filter. Threshold for detecting Trending/Ranging markets.", group="Filters", inline="adx")
+ )
+//
+
+
+showTradeStats = input.bool(true, 'Show Trade Stats', tooltip='Displays the trade stats for a given configuration. Useful for optimizing the settings in the Feature Engineering section. This should NOT replace backtesting and should be used for calibration purposes only. Early Signal Flips represent instances where the model changes signals before 4 bars elapses; high values can indicate choppy (ranging) market conditions.', group="General Settings")
+useWorstCase = input.bool(false, "Use Worst Case Estimates", tooltip="Whether to use the worst case scenario for backtesting. This option can be useful for creating a conservative estimate that is based on close prices only, thus avoiding the effects of intrabar repainting. This option assumes that the user does not enter when the signal first appears and instead waits for the bar to close as confirmation. On larger timeframes, this can mean entering after a large move has already occurred. Leaving this option disabled is generally better for those that use this indicator as a source of confluence and prefer estimates that demonstrate discretionary mid-bar entries. Leaving this option enabled may be more consistent with traditional backtesting results.", group="General Settings")
+
+// Feature Variables: User-Defined Inputs for calculating Feature Series. 
+f1_string = input.string(title="Feature 1", options=["RSI", "WT", "CCI", "ADX"], defval="RSI", inline = "01", tooltip="The first feature to use for ML predictions.", group="Feature Engineering")
+f1_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 1.", defval=14, inline = "02", group="Feature Engineering")
+f1_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 2 (if applicable).", defval=1, inline = "02", group="Feature Engineering")
+f2_string = input.string(title="Feature 2", options=["RSI", "WT", "CCI", "ADX"], defval="WT", inline = "03", tooltip="The second feature to use for ML predictions.", group="Feature Engineering")
+f2_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 2.", defval=10, inline = "04", group="Feature Engineering")
+f2_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 2 (if applicable).", defval=11, inline = "04", group="Feature Engineering")
+f3_string = input.string(title="Feature 3", options=["RSI", "WT", "CCI", "ADX"], defval="CCI", inline = "05", tooltip="The third feature to use for ML predictions.", group="Feature Engineering")
+f3_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 3.", defval=20, inline = "06", group="Feature Engineering")
+f3_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 3 (if applicable).", defval=1, inline = "06", group="Feature Engineering")
+f4_string = input.string(title="Feature 4", options=["RSI", "WT", "CCI", "ADX"], defval="ADX", inline = "07", tooltip="The fourth feature to use for ML predictions.", group="Feature Engineering")
+f4_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 4.", defval=20, inline = "08", group="Feature Engineering")
+f4_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 4 (if applicable).", defval=2, inline = "08", group="Feature Engineering")
+f5_string = input.string(title="Feature 5", options=["RSI", "WT", "CCI", "ADX"], defval="RSI", inline = "09", tooltip="The fifth feature to use for ML predictions.", group="Feature Engineering")
+f5_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 5.", defval=9, inline = "10", group="Feature Engineering")
+f5_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 5 (if applicable).", defval=1, inline = "10", group="Feature Engineering")
+
+// EMA Settings 
+useEmaFilter = input.bool(title="Use EMA Filter", defval=false, group="Filters", inline="ema")
+emaPeriod = input.int(title="Period", defval=200, minval=1, step=1, group="Filters", inline="ema", tooltip="The period of the EMA used for the EMA Filter.")
+useSmaFilter = input.bool(title="Use SMA Filter", defval=false, group="Filters", inline="sma")
+smaPeriod = input.int(title="Period", defval=200, minval=1, step=1, group="Filters", inline="sma", tooltip="The period of the SMA used for the SMA Filter.")
+
+
+// Nadaraya-Watson Kernel Regression Settings
+useKernelFilter = input.bool(true, "Trade with Kernel", group="Kernel Settings", inline="kernel")
+showKernelEstimate = input.bool(true, "Show Kernel Estimate", group="Kernel Settings", inline="kernel")
+useKernelSmoothing = input.bool(false, "Enhance Kernel Smoothing", tooltip="Uses a crossover based mechanism to smoothen kernel color changes. This often results in less color transitions overall and may result in more ML entry signals being generated.", inline='1', group='Kernel Settings')
+h1 = input.int(8, 'Lookback Window', minval=3, tooltip='The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50', group="Kernel Settings", inline="kernel")
+r1 = input.float(8., 'Relative Weighting', step=0.25, tooltip='Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25', group="Kernel Settings", inline="kernel")
+x = input.int(25, "Regression Level", tooltip='Bar index on which to start regression. Controls how tightly fit the kernel estimate is to the data. Smaller values are a tighter fit. Larger values are a looser fit. Recommended range: 2-25', group="Kernel Settings", inline="kernel")
+lag1 = input.int(2, "Lag", tooltip="Lag for crossover detection. Lower values result in earlier crossovers. Recommended range: 1-2", inline='1', group='Kernel Settings')
+
+// Display Settings
+showBarColors = input.bool(true, "Show Bar Colors", tooltip="Whether to show the bar colors.", group="Display Settings")
+showBarPredictions = input.bool(defval = true, title = "Show Bar Prediction Values", tooltip = "Will show the ML model's evaluation of each bar as an integer.", group="Display Settings")
+useAtrOffset = input.bool(defval = false, title = "Use ATR Offset", tooltip = "Will use the ATR offset instead of the bar prediction offset.", group="Display Settings")
+barPredictionsOffset = input.float(0, "Bar Prediction Offset", minval=0, tooltip="The offset of the bar predictions as a percentage from the bar high or close.", group="Display Settings")
+
+
+type Label
+    int long
+    int short
+    int neutral
+
+type FeatureArrays
+    array<float> f1
+    array<float> f2
+    array<float> f3
+    array<float> f4
+    array<float> f5
+
+type FeatureSeries
+    float f1
+    float f2
+    float f3
+    float f4
+    float f5
+
+type MLModel
+    int firstBarIndex
+    array<int> trainingLabels
+    int loopSize
+    float lastDistance
+    array<float> distancesArray
+    array<int> predictionsArray
+    int prediction
+
+type Filter
+    bool volatility
+    bool regime
+    bool adx 
+//
+
+series_from(feature_string, _close, _high, _low, _hlc3, f_paramA, f_paramB) =>
+    switch feature_string
+        "RSI" => ml.n_rsi(_close, f_paramA, f_paramB)
+        "WT" => ml.n_wt(_hlc3, f_paramA, f_paramB)
+        "CCI" => ml.n_cci(_close, f_paramA, f_paramB)
+        "ADX" => ml.n_adx(_high, _low, _close, f_paramA)
+
+get_lorentzian_distance(int i, int featureCount, FeatureSeries featureSeries, FeatureArrays featureArrays) =>
+    switch featureCount
+        5 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) + 
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) +
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i))) + 
+             math.log(1+math.abs(featureSeries.f5 - array.get(featureArrays.f5, i)))
+        4 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) +
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i)))
+        3 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i)))
+        2 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i)))
+ 
+float kernelEstimate = 0
+bool startLongTrade = false
+bool startShortTrade = false
+color plotColor = color(na)
+var prediction = 0.
+
+if useLC
+
+    Filter filter = Filter.new(
+     ml.filter_volatility(1, 10, filterSettings.useVolatilityFilter), 
+     ml.regime_filter(ohlc4, filterSettings.regimeThreshold, filterSettings.useRegimeFilter),
+     ml.filter_adx(settings.source, 14, filterSettings.adxThreshold, filterSettings.useAdxFilter)
+     )
+    //
+
+    // FeatureSeries Object: Calculated Feature Series based on Feature Variables
+    featureSeries = FeatureSeries.new(
+     series_from(f1_string, close, high, low, hlc3, f1_paramA, f1_paramB), // f1
+     series_from(f2_string, close, high, low, hlc3, f2_paramA, f2_paramB), // f2 
+     series_from(f3_string, close, high, low, hlc3, f3_paramA, f3_paramB), // f3
+     series_from(f4_string, close, high, low, hlc3, f4_paramA, f4_paramB), // f4
+     series_from(f5_string, close, high, low, hlc3, f5_paramA, f5_paramB)  // f5
+     )
+    //
+
+    var f1Array = array.new_float()
+    var f2Array = array.new_float()
+    var f3Array = array.new_float()
+    var f4Array = array.new_float()
+    var f5Array = array.new_float()
+    array.push(f1Array, featureSeries.f1)
+    array.push(f2Array, featureSeries.f2)
+    array.push(f3Array, featureSeries.f3)
+    array.push(f4Array, featureSeries.f4)
+    array.push(f5Array, featureSeries.f5)
+
+    featureArrays = FeatureArrays.new(
+     f1Array, // f1
+     f2Array, // f2
+     f3Array, // f3
+     f4Array, // f4
+     f5Array  // f5
+     )
+
+
+    Label direction = Label.new(
+     long=1, 
+     short=-1, 
+     neutral=0
+     )
+
+
+    maxBarsBackIndex = last_bar_index >= settings.maxBarsBack ? last_bar_index - settings.maxBarsBack : 0
+    isEmaUptrend = useEmaFilter ? close > ta.ema(close, emaPeriod) : true
+    isEmaDowntrend = useEmaFilter ? close < ta.ema(close, emaPeriod) : true
+    isSmaUptrend = useSmaFilter ? close > ta.sma(close, smaPeriod) : true
+    isSmaDowntrend = useSmaFilter ? close < ta.sma(close, smaPeriod) : true
+
+    src = settings.source
+    y_train_series = src[4] < src[0] ? direction.short : src[4] > src[0] ? direction.long : direction.neutral
+    var y_train_array = array.new_int(0)
+
+    // Variables used for ML Logic
+    var predictions = array.new_float(0)
+    var signal = direction.neutral
+    var distances = array.new_float(0)
+
+    array.push(y_train_array, y_train_series)
+
+    lastDistance = -1.0
+    size = math.min(settings.maxBarsBack-1, array.size(y_train_array)-1)
+    sizeLoop = math.min(settings.maxBarsBack-1, size)
+
+    if bar_index >= maxBarsBackIndex //{
+        for i = 0 to sizeLoop //{
+            d = get_lorentzian_distance(i, settings.featureCount, featureSeries, featureArrays) 
+            if d >= lastDistance and i%4 //{
+                lastDistance := d            
+                array.push(distances, d)
+                array.push(predictions, math.round(array.get(y_train_array, i)))
+                if array.size(predictions) > settings.neighborsCount //{
+                    lastDistance := array.get(distances, math.round(settings.neighborsCount*3/4))
+                    array.shift(distances)
+                    array.shift(predictions)
+                //}
+            //}
+        //}
+        prediction := array.sum(predictions)
+    //}
+
+
+    filter_all = filter.volatility and filter.regime and filter.adx
+    signal := prediction > 0 and filter_all ? direction.long : prediction < 0 and filter_all ? direction.short : nz(signal[1])
+
+    var int barsHeld = 0
+    barsHeld := ta.change(signal) ? 0 : barsHeld + 1
+    isHeldFourBars = barsHeld == 4
+    isHeldLessThanFourBars = 0 < barsHeld and barsHeld < 4
+
+    // Fractal Filters: Derived from relative appearances of signals in a given time series fractal/segment with a default length of 4 bars
+    isDifferentSignalType = ta.change(signal)
+    isEarlySignalFlip = ta.change(signal) and (ta.change(signal[1]) or ta.change(signal[2]) or ta.change(signal[3]))
+    isBuySignal = signal == direction.long and isEmaUptrend and isSmaUptrend
+    isSellSignal = signal == direction.short and isEmaDowntrend and isSmaDowntrend
+    isLastSignalBuy = signal[4] == direction.long and isEmaUptrend[4] and isSmaUptrend[4]
+    isLastSignalSell = signal[4] == direction.short and isEmaDowntrend[4] and isSmaDowntrend[4]
+    isNewBuySignal = isBuySignal and isDifferentSignalType
+    isNewSellSignal = isSellSignal and isDifferentSignalType
+
+    c_green = color.new(#009988, 20)
+    c_red = color.new(#CC3311, 20)
+    transparent = color.new(#000000, 100)
+    yhat1 = kernels.rationalQuadratic(settings.source, h1, r1, x)
+    yhat2 = kernels.gaussian(settings.source, h1-lag1, x)
+    kernelEstimate := yhat1
+    // Kernel Rates of Change
+    bool wasBearishRate = yhat1[2] > yhat1[1]
+    bool wasBullishRate = yhat1[2] < yhat1[1]
+    bool isBearishRate = yhat1[1] > yhat1
+    bool isBullishRate = yhat1[1] < yhat1
+    isBearishChange = isBearishRate and wasBullishRate
+    isBullishChange = isBullishRate and wasBearishRate
+    // Kernel Crossovers
+    bool isBullishSmooth = yhat2 >= yhat1
+    bool isBearishSmooth = yhat2 <= yhat1
+    // Kernel Colors
+    color colorByCross = isBullishSmooth ? c_green : c_red
+    color colorByRate = isBullishRate ? c_green : c_red
+    plotColor := showKernelEstimate ? (useKernelSmoothing ? colorByCross : colorByRate) : transparent
+    // Bullish and Bearish Filters based on Kernel
+    isBullish = useKernelFilter ? (useKernelSmoothing ? isBullishSmooth : isBullishRate) : true
+    isBearish = useKernelFilter ? (useKernelSmoothing ? isBearishSmooth : isBearishRate) : true
+
+    // Entry Conditions: Booleans for ML Model Position Entries
+    startLongTrade := isNewBuySignal and isBullish and isEmaUptrend and isSmaUptrend
+    startShortTrade := isNewSellSignal and isBearish and isEmaDowntrend and isSmaDowntrend
+//
+
+// Note: These will not repaint once the most recent bar has fully closed. By default, signals appear over the last closed bar; to override this behavior set offset=0.
+plot(useLC ? kernelEstimate:na, color=plotColor, linewidth=2, title="Kernel Regression Estimate")
+plotshape(startLongTrade and useLC ? low : na, 'Buy', shape.labelup, location.belowbar, color=ml.color_green(prediction), size=size.small, offset=0)
+plotshape(startShortTrade and useLC ? high : na, 'Sell', shape.labeldown, location.abovebar, ml.color_red(-prediction), size=size.small, offset=0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// FOR DRAWING THE SWING HIGH/LOW LINES 
+drawSwings(float osc, color lineColor, int lineWidth, bool isRsi = false) =>
+
+    // for the bar index of the oscillator range (The start of the oscillator range)
+    var int negativeStart = int(na)
+    var int positiveStart = int(na)
+
+    // for the lowest/highest value in the current oscillator range
+    var float lowestVal = float(na)
+    var float highestVal = float(na)
+
+    // for the lowest/highest bar on the chart in the current oscillator range
+    var int lowestBar = int(na)
+    var int highestBar = int(na)
+
+    // for checking if we are drawing lines from the same point
+    var int uplineRange = 0
+    var int dwnlineRange = 0
+
+    // for knowing which range we are in (this is only for rsi)
+    var bool isBullRange = bool(na)
+
+    // variables for keeping a track of the last 2 highs/lows
+    var int previousLow = 0
+    var int previousLowHigh = 0
+    var int currentLow = 0
+
+    var int previousHigh = 0
+    var int previousHighLow = 0
+    var int currentHigh = 0
+
+    
+    // to make sure it gets the bar index of when the range starts when the crossover condition cant find it
+    if (osc < 0 and na(osc[1]) and not isRsi) or (isRsi and not isBullRange and osc >= rsiOb and not na(osc))
+        if isRsi
+            isBullRange := true
+            positiveStart := bar_index
+            highestVal := high
+        else
+            negativeStart := bar_index
+            lowestVal := low
+    //
+
+    if (osc > 0 and na(osc[1]) and not isRsi) or (isRsi and isBullRange and osc <= rsiOs and not na(osc))
+        if isRsi
+            isBullRange := false
+            negativeStart := bar_index
+            lowestVal := low
+        else
+            positiveStart := bar_index
+            highestVal := high
+    //
+
+
+    // to record the start of the range
+    if osc < 0 and osc[1] > 0 and not isRsi
+        negativeStart := bar_index
+        lowestVal := low
+    //
+
+    if osc > 0 and osc[1] < 0 and not isRsi
+        positiveStart := bar_index
+        highestVal := high
+    //
+
+
+
+    // to find the highest/lowest bar and its price in the range
+    if (osc < 0 and na(osc[1]) == false and not isRsi) or (isRsi and not isBullRange)
+        if low <= lowestVal
+            lowestVal := low
+            lowestBar := bar_index
+    //
+
+    if (osc > 0 and na(osc[1]) == false and not isRsi) or (isRsi and isBullRange)
+        if high >= highestVal
+            highestVal := high
+            highestBar := bar_index
+    //
+
+
+
+    // Draw lines based on the conditions
+    var line upline = line(na)
+    var line dwnline = line(na)
+
+    if negativeStart < positiveStart
+        if negativeStart != uplineRange
+            upline := line.new(time[bar_index - lowestBar], lowestVal, time[bar_index - highestBar], highestVal, color = lineColor, xloc = xloc.bar_time, width = lineWidth)
+            uplineRange := negativeStart
+        else
+            upline.set_x2(time[bar_index - highestBar])
+            upline.set_y2(highestVal)
+
+    if positiveStart < negativeStart
+        if positiveStart != dwnlineRange
+            dwnline := line.new(time[bar_index - highestBar], highestVal, time[bar_index - lowestBar], lowestVal, color = lineColor, xloc = xloc.bar_time, width = lineWidth)
+            dwnlineRange := positiveStart
+        else
+            dwnline.set_x2(time[bar_index - lowestBar])
+            dwnline.set_y2(lowestVal)
+    //
+
+
+    // to get the latest 2 lows
+    currentLow := lowestBar
+    if lowestBar >= highestBar and previousLow != lowestBar[1] and previousLowHigh != highestBar 
+        previousLow := lowestBar[1]
+        previousLowHigh := highestBar
+    //
+
+    // to get the latest 2 highs
+    currentHigh := highestBar
+    if highestBar >= lowestBar and previousHigh != highestBar[1] and previousHighLow != lowestBar 
+        previousHigh := highestBar[1]
+        previousHighLow := lowestBar 
+    //
+
+
+    [previousHigh, currentHigh, previousLow, currentLow]
+//
+
+
+
+// FOR FINDING DIVERGENCE WITH LOGIC 2
+isKernelBullDiv(int currHighBar, int prevHighBar, int currLowBar, int prevLowBar, bool isHidden=false) =>
+
+    // getting the shifts of the lows and highs
+    prevHigh = bar_index - prevHighBar
+    currHigh = bar_index - currHighBar
+    prevLow = bar_index - prevLowBar
+    currLow = bar_index - currLowBar
+
+    // do we have a divergence or not
+    isDivergence = false
+
+    // keeping track of the beginning of a new negative ao range
+    var int rangeStart = bar_index
+    if osc[1] > 0 and osc < 0
+        rangeStart := bar_index
+    //
+
+    // keeping track of the previous lines
+    var line hidLine = line(na)
+    var int hidLineStart = 0
+    var line regLine = line(na)
+    var int regLineStart = 0
+
+    // if they are, get the ao ranges between the lows and the highs (the upleg) and get the lowest low in each range
+    float lowest1 = aoDiv.findLowestAo(currHighBar, osc, prevLow)
+    float lowest2 = aoDiv.findLowestAo(rangeStart, osc, 0)
+
+    // check if there are lower lows and we have a downleg (for reg divergence)
+    if low[currLow] < low[prevLow] and currLowBar >= currHighBar and not isHidden
+        
+        // check if there are higher lows in the ao ranges
+        if lowest1 < lowest2
+            isDivergence := true
+            if prevLowBar == regLineStart
+                line.delete(regLine)
+            //
+            regLine := line.new(time[prevLow], low[prevLow], time[currLow], low[currLow], color = KernelRDColor2, xloc = xloc.bar_time, width = 1)
+            regLineStart := prevLowBar
+    // 
+
+    // check if there are higher lows and we have a downleg (for hid divergence)
+    if low[currLow] > low[prevLow] and currLowBar >= currHighBar and isHidden
+        
+        // check if there are lower lows in the ao ranges
+        if lowest1 > lowest2
+            isDivergence := true
+            if prevLowBar == hidLineStart
+                line.delete(hidLine)
+            //
+            hidLine := line.new(time[prevLow], low[prevLow], time[currLow], low[currLow], color = KernelHDColor2, xloc = xloc.bar_time, width = 1)
+            hidLineStart := prevLowBar
+    //
+
+    isDivergence
+//
+
+isKernelBearDiv(int currHighBar, int prevHighBar, int currLowBar, int prevLowBar, bool isHidden=false) =>
+
+    // getting the shifts of the lows and highs
+    prevHigh = bar_index - prevHighBar
+    currHigh = bar_index - currHighBar
+    prevLow = bar_index - prevLowBar
+    currLow = bar_index - currLowBar
+
+    // do we have a divergence or not
+    isDivergence = false
+
+    // keeping track of the previous lines
+    var line hidLine = line(na)
+    var int hidLineStart = 0
+    var line regLine = line(na)
+    var int regLineStart = 0
+
+    // keeping track of the beginning of a new positive ao range
+    var int rangeStart = bar_index
+    if osc[1] < 0 and osc > 0
+        rangeStart := bar_index
+    //
+
+    // get the ao ranges between the lows and the highs (the upleg) and get the lowest low in each range
+    float highest1 = aoDiv.findHighestAo(currLowBar, osc, prevHigh)
+    float highest2 = aoDiv.findHighestAo(rangeStart, osc, 0)
+
+    // check if there are higher highs and we have a downleg (for a reg divergence)
+    if high[currHigh] > high[prevHigh] and currLowBar < currHighBar and not isHidden
+        
+        // check if there are lower highs in the ao ranges
+        if highest1 > highest2
+            isDivergence := true
+            if prevHighBar == regLineStart
+                line.delete(regLine)
+            //
+            regLine := line.new(time[prevHigh], high[prevHigh], time[currHigh], high[currHigh], color = KernelRDColor2, xloc = xloc.bar_time, width = 1)
+            regLineStart := prevHighBar
+    // 
+
+    // check if there are lower highs and we have a downleg (for a hid divergence)
+    if high[currHigh] < high[prevHigh] and currLowBar < currHighBar and isHidden
+        
+        // check if there are higher highs in the ao ranges
+        if highest1 < highest2
+            isDivergence := true
+            if prevHighBar == hidLineStart
+                line.delete(hidLine)
+            //
+            hidLine := line.new(time[prevHigh], high[prevHigh], time[currHigh], high[currHigh], color = KernelHDColor2, xloc = xloc.bar_time, width = 1)
+            hidLineStart := prevHighBar
+    // 
+
+    isDivergence
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// FOR AO
+if useAo
+    drawSwings(ao, AoColor, widthAo, false)
+//
+
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+// FOR MACD
+if useMacd4c
+    drawSwings(macd, MacdColor, widthMacd, false)
+//
+
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+// FOR RSI
+if useRsi
+    drawSwings(rsi, RsiColor, widthRsi, true)
+//
+
+// FOR RANGE SHIFT
+bgcolor(rsi <= bullRangeTop and rsi >= bullRangeBottom and useRangeShift ? bullRangeColor : color(na))
+bgcolor(rsi <= bearRangeTop and rsi >= bearRangeBottom and useRangeShift ? bearRangeColor : color(na))
+
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+// FOR KERNEL AO OSCILLATOR
+var int prevHigh=0, currHigh=0, prevLow=0, currLow=0
+if useKernelOsc
+    [p, c, p1, c1] = drawSwings(osc, KernelOscColor, widthKernelOsc, false)
+    prevHigh := p
+    currHigh := c
+    prevLow := p1
+    currLow := c1
+//
+
+// FOR KERNEL BASED DIVERGENCE
+// ao divergence logic
+if useKernelReg
+    aoDiv.regBullDivergence(indicator.zigzagCalc(Depth, Deviation, Backstep, repaint, Show_zz, line_thick), osc, KernelRDColor1)
+    aoDiv.regBearDivergence(indicator.zigzagCalc(Depth, Deviation, Backstep, repaint, Show_zz, line_thick), osc, KernelRDColor1)
+//
+
+if useKernelHid
+    aoDiv.hidBullDivergence(indicator.zigzagCalc(Depth, Deviation, Backstep, repaint, Show_zz, line_thick), osc, KernelHDColor1)
+    aoDiv.hidBearDivergence(indicator.zigzagCalc(Depth, Deviation, Backstep, repaint, Show_zz, line_thick), osc, KernelHDColor1)
+//
+
+// logic 2
+if useKernelReg2
+    isKernelBearDiv(currHigh, prevHigh, currLow, prevLow)
+    isKernelBullDiv(currHigh, prevHigh, currLow, prevLow)
+//
+
+if useKernelHid2
+    isKernelBearDiv(currHigh, prevHigh, currLow, prevLow, true)
+    isKernelBullDiv(currHigh, prevHigh, currLow, prevLow, true)
+//
+
+
