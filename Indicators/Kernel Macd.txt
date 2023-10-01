@@ -2,10 +2,6 @@
 // © sammie123567858
 
 
-// @description
-// this indicator is like MACD. The only difference is that the 2 ma lines are replaced by kernel lines
-
-
 //@version=5
 indicator("Kernel Macd", overlay = false)
 import jdehorty/KernelFunctions/2 as kernels
