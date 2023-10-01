@@ -2,42 +2,6 @@
 // © sammie123567858
 
 
-
-//@description:
-
-// 📝 BRIEF OVERVIEW
-// this has been derived from the Multi Oscillator_swing high/low indicator. 
-// this has the same side divergences but it does not have any other divergence
-
-
-
-// 🖌️ WHAT IT DRAWS
-
-// - draws lines like zigzag to show swing highs/lows based on the oscillator you choose 
-//   (ao, macd 4c, rsi, kernel ao oscillator) 
-
-// - draws divergences ONLY for the kernel ao oscillator
-//   It draws divergences with internal/same side logic (regular & hidden)
-
-// - draws range shift 
-
-// - kernel crossover indicator 
-
-// - nadaraya watson kernel indicator (which is known as the signal line)
-
-// - LC (lorentzian classification)
-
-
-
-
-
-
-
-
-
-
-
-
 //@version=5
 indicator("Kernel AO Same Side Divergence", overlay = true, format = format.price, max_bars_back=5000, max_lines_count = 500, precision = 5)                                            
 
