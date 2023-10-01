@@ -4,7 +4,6 @@
 //@version=5
 indicator("Kernel Bollinger Band", overlay = true, shorttitle = 'Kernel BB')
 
-//importing Justin Dehortys awesome kernel library
 import jdehorty/KernelFunctions/2 as kernels
 
 //user Input for the fast Kernel line
