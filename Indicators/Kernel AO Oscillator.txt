@@ -1,0 +1,80 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © SamaaraDas
+
+// @description
+// Awesome oscillator re-developed using kernel regression.
+// It has its own kernel lines.
+
+
+//@version=5
+indicator("Kernel AO Oscillator", overlay = false, format = format.price, max_bars_back = 5000, max_lines_count = 500, precision = 5)
+
+
+import jdehorty/KernelFunctions/2 as kernels
+
+
+// general
+width = input(2, 'Line Width', group = 'General')
+showFast = input.bool(true, 'Show Fast Kernel', group = 'General')
+showSlow = input.bool(true, 'Show Slow Kernel', group = 'General')
+
+
+// user input for signal line
+string signalType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Signal Line Settings" )
+float signalWeight = input.float(8, "Rel Weight", 0 , 50, step = 0.2, group = "Signal Line Settings")
+int signalLookback = input.int(5, "Lookback",2 , 500, group = "Signal Line Settings")
+int signalRegressionStart = input.int(25, "Regression Start",2 , 400, group = "Signal Line Settings")
+bool signalSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Signal Line Settings")
+int signalSmoothPeriod = input.int(4, "",2 , 200, inline = "Smooth", group = "Signal Line Settings")
+
+//user Input for the fast Kernel line
+string kernelFastType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Fast Kernel Settings" )
+float kernelFastWeight = input.float(8, "Rel Weight", 0 , 50, step = 0.2, group = "Fast Kernel Settings")
+int kernelFastLookback = input.int(5, "Lookback",2 , 500, group = "Fast Kernel Settings")
+int kernelFastRegressionStart = input.int(25, "Regression Start",2 , 400, group = "Fast Kernel Settings")
+bool kernelFastSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Fast Kernel Settings")
+int kernelFastSmoothPeriod = input.int(4, "",2 , 200, inline = "Smooth", group = "Fast Kernel Settings")
+
+//user Input for the slow Kernel line
+string kernelSlowType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Slow Kernel Settings" )
+float kernelSlowWeight = input.float(3, "Rel Weight", 0 , 5, step = 0.2, group = "Slow Kernel Settings")
+int kernelSlowLookback = input.int(34, "Lookback",2 , 500, group = "Slow Kernel Settings")
+int kernelSlowRegressionStart = input.int(120, "Regression Start",2 , 400, group = "Slow Kernel Settings")
+bool kernelSlowSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Slow Kernel Settings")
+int kernelSlowSmoothPeriod = input.int(40, "",2 , 200, inline = "Smooth", group = "Slow Kernel Settings")
+
+//fast Kernel line
+float kernelFast = switch kernelFastType
+    "Rational Quadratic" => kernels.rationalQuadratic(close, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+    "Gaussian" => kernels.gaussian(close, kernelFastLookback, kernelFastRegressionStart)
+
+if kernelFastSmooth
+    kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
+    
+kernelFastRising = ta.rising(kernelFast, 1)
+kernelFastColor = kernelFastRising ? #00d107 : #fa1f1f
+
+
+//slow Kernel line
+float kernelSlow = switch kernelSlowType
+    "Rational Quadratic" => kernels.rationalQuadratic(close, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+    "Gaussian" => kernels.gaussian(close, kernelSlowLookback, kernelSlowRegressionStart)
+
+if kernelSlowSmooth
+    kernelSlow := ta.sma(kernelSlow, kernelSlowSmoothPeriod)
+
+kernelSlowRising = ta.rising(kernelSlow, 1)
+kernelSlowColor = kernelSlowRising ? #00d107 : #fa1f1f
+
+
+
+
+osc = kernelFast - kernelSlow
+diff = osc - osc[1]
+plot(osc, color = diff <= 0 ? #cf0f49 : #5d0995, style=plot.style_columns)
+
+
+kernelFast := kernels.rationalQuadratic(osc, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+kernelSlow := kernels.rationalQuadratic(osc, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+plot(showFast ? kernelFast:na, title="Fast Kernel", color=kernelFastColor, linewidth = width)
+plot(showSlow ? kernelSlow:na, title="Slow Kernel", color=kernelSlowColor, linewidth = width)
