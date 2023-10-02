@@ -3,7 +3,16 @@
 ![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/ed6245a8-a764-4ee6-9403-3501c6569f39)
 
 2. Displays hidden & regular divergences ONLY for the Kernel AO Oscillator. It draws divergences based on 2 different logics:
-Logic 1:
+Logic 1: 2 oscillator ranges are compared with each other. Then the lowest/highest bar prices within each of those ranges are compared with each other. Look below to find the exact logic for divergences of logic 1.
+
+Bullish Regular Divergence: in a zigzag leg, the lowest negative oscillator range is found. That is then compared to the next negative range to its right. If the lowest bar in the right range is higher than the lowest bar in the lowest range and the lowest price in within the right range is lower than the lowest price within the lowest range, there is a bullish diverence. The opposite of this logic is applied for bearish divergences.
+
+Bearish Regular Divergence: 
+
+Bullish Hidden Divergence: 
+
+Bearish Hidden Divergence:
+
 Logic 2:
 
 Here are the inputs to show/hide the divergences:
