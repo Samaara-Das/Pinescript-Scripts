@@ -9,7 +9,7 @@ Logic 2:
 Here are the inputs to show/hide the divergences:
 ![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/79638677-2a2e-4920-aa1d-d3f508c32b93)
 
-3. Displays range shift. This shades the background based on the RSI. if the RSI is in a bullish range, the background will be green. If it's in a bearish range, the background will be red. Here are the inputs to show/hide the shadings:
+3. Displays range shift. This shades the background based on the RSI. if the RSI is in a bullish range, the background will be green. If it's in a bearish range, the background will be red. Here are the inputs to configure it shading:
 ![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/4642fa42-3b80-49a5-8c18-6ccb31276198)![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/85f3e6ea-1ea7-43f0-9dee-5f0ec5561608)![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/52fac829-35c9-4194-9de8-593898a0c421)
 
 4. Displays Kernel Crossover indicator. They're the fast & slow rational quadratic kernel lines. Here is the input to show/hide it:
