@@ -1,0 +1,1387 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © sammie123567858
+
+//@version=5
+strategy("ao_div_ema_rsi_range", overlay=true, margin_long=100, margin_short=100, process_orders_on_close = true, max_bars_back=5000, pyramiding = 0)
+
+
+
+
+//THE DESCRIPTION BELOW IS FOR YOUR REFERENCE
+
+// INDICATORS
+
+// * <slow ema>, <time chart >
+// * <fast ema>, <time chart >
+// * rsi bullish zone : between rsi level 60-80 
+// * rsi bearish zone : rsi level 40-20
+// * <zigzag >
+// * hidden & regular AO div.
+
+
+
+//buy entry 1
+
+// when price close (shift 1)  is above slow ema  and fast ema (if both ema are chosen in the option, else it is the one chosen) 
+// & price low is below slow ema or fast ema (if one ema is chosen then ‘or’ will not apply) 
+// & ao buy reg / hid div before shift 1 & lower than shift 1 candle low. ( the div second low should be the lowest low from that low till the shift 1) (optional)
+// & rsi is bullish zone at shift 1 (optional)
+// enter buy at shift 1 close 
+
+
+
+// buy exit 
+
+// stop loss below last zigzag swing low 
+// or stop loss below div high/low if ao div is checked
+// take profit : risk:reward 
+// or close when sell entry is done 
+
+
+
+// NOTE ABOUT EXITS:
+//if tp & sl input is true but close condition is false, it will work for single trades (1 trade at a time)
+//if close condition is true but sl & tp exit is false, it will work for single & multiple trades at a time (if you want multiple trades to be taken, change pyramiding to anything more than 0)
+//if both are true, it will only work for single trades. the entries will be exited based on if the sl/tp or close condition gets triggered first
+
+
+
+//-----------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+//trade condition inputs
+priceCloseEntryInput = input.bool(true, 'Ema Price Close Condition?', group = 'entry Settings', tooltip = "when price closes above/below both emas. select atleast 1 ma. if you don't want ma in entry condition, uncheck this")
+priceExtEntryInput = input.bool(true, 'Ema Price Low/High Condition?', group = 'entry Settings', tooltip = "when price high/low is above/below either emas. select atleast 1 ma. if you don't want ma in entry condition, uncheck this")
+useMaSlowInput = input.bool(true, 'Use Slow MA in Entry?', group = 'entry Settings', tooltip = 'the entry conditions using ema will use slow ma')
+useMaFastInput = input.bool(false, 'Use Fast MA in Entry?', group = 'entry Settings', tooltip = 'the entry conditions using ema will use fast ma')
+rsiZoneEntryInput = input.bool(true, 'Use RSI Zone Condition?', group = 'entry Settings', tooltip = 'when rsi is in bullish/bearish zone at specified shift')
+rDivEntryInput = input.bool(false, 'Reg Div Condition?', group = 'entry Settings', tooltip = 'checks if a regular ao divergence has come. atleast 1 other entry condition must be checked for this to work')
+hDivEntryInput = input.bool(true, 'Hid Div Condition?', group = 'entry Settings', tooltip = 'checks if a hidden ao divergence has come. atleast 1 other entry condition must be checked for this to work')
+
+
+entryShiftInput = input.int(0, 'Entry Shift', minval = 0, group = 'entry Settings', tooltip = 'shift on which selected entry condition/s must be true.')
+lotsInput = input.int(1, 'Lots', minval = 1, group = 'entry Settings')
+
+
+useSLTPExitInput = input.bool(true, 'Use SL & TP Exit?', group = 'exit Settings', tooltip = 'use ZZ SL and Risk-Reward Based TP. only works when there is 1 trade at a time')
+oppositeTradeExitInput = input.bool(false, 'Close Trade/s when Opposite Trade Opens?', group = 'exit Settings', tooltip = 'close buy trade/s when a sell entry gets opened & vice versa. this works when there is 1 or more trades running. If you want to open more than 1 trade a time, change pyramiding to anything more than 0.')
+tpRatioInput = input.float(1, 'TP Ratio', minval=1, group = 'exit Settings')
+useZZSLExitInput = input.bool(false, 'Use ZigZag SL?', group = 'exit Settings', tooltip = 'when this is checked, the sl will be the latest zz high/low')
+useRDivSLExitInput = input.bool(true, '2nd High/Low (for Reg Div) SL?', group = 'exit Settings', tooltip = "the sl will be the divergence's 2nd high/low")
+useH1DivSLExitInput = input.bool(false, '1st High/Low (for Hid Div) SL?', group = 'exit Settings', tooltip = "the sl will be the divergence's 1st high/low")
+useH2DivSLExitInput = input.bool(false, '2nd High/Low (for Hid Div) SL?', group = 'exit Settings', tooltip = "the sl will be the divergence's 2nd high/low")
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+//slow ma indicator code 
+allowma = input.bool(false, "Plot Slow MA ", group = 'MA Slow Settings')
+matimeframe = input.timeframe("", 'Timeframe for MA', group = 'MA Slow Settings', tooltip = 'be careful when using a lower timeframe, it might not work')  //be careful when using a lower timeframe, it might not work
+typeMA = input.string(title = "Method for smoothing", defval = "EMA", options=["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group="MA Slow Settings")
+len1 = input.int(100, minval=1, title="Length", group="MA Slow Settings")
+src1 = input(close, title="Source", group="MA Slow Settings")
+offset = input.int(title="Offset", defval=0, minval=-500, maxval=500, group="MA Slow Settings")
+macolor1 = input.color(color.blue, title="Color of MA", group="MA Slow Settings")
+
+SMA = request.security(syminfo.tickerid, matimeframe, ta.sma(src1, len1))
+EMA = request.security(syminfo.tickerid, matimeframe, ta.ema(src1, len1))
+SMMA = request.security(syminfo.tickerid, matimeframe, ta.rma(src1, len1))
+WMA = request.security(syminfo.tickerid, matimeframe, ta.wma(src1, len1))
+VWMA = request.security(syminfo.tickerid, matimeframe, ta.vwma(src1, len1))
+
+out = typeMA == 'EMA' ? EMA : typeMA == 'SMA' ? SMA : typeMA == 'SMMA (RMA)' ? SMMA : typeMA == 'WMA' ? WMA : typeMA == 'VWMA' ? VWMA : 0
+
+plot(allowma ? out:na, title="MA", color=macolor1, offset=offset)
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+//fast ma indicator code 
+allowma2 = input.bool(false, "Plot Fast MA ", group = 'MA FASt Settings')
+matimeframe2 = input.timeframe("", 'Timeframe for MA', group = 'MA FASt Settings', tooltip = 'be careful when using a lower timeframe, it might not work')  //be careful when using a lower timeframe, it might not work
+typeMA2 = input.string(title = "Method", defval = "EMA", options=["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group="MA FASt Settings")
+len12 = input.int(50, minval=1, title="Length", group="MA FASt Settings")
+src12 = input(close, title="Source", group="MA FASt Settings")
+offset2 = input.int(title="Offset", defval=0, minval=-500, maxval=500, group="MA FASt Settings")
+macolor12 = input.color(color.yellow, title="Color of MA", group="MA FASt Settings")
+
+SMA2 = request.security(syminfo.tickerid, matimeframe2, ta.sma(src12, len12))
+EMA2 = request.security(syminfo.tickerid, matimeframe2, ta.ema(src12, len12))
+SMMA2 = request.security(syminfo.tickerid, matimeframe2, ta.rma(src12, len12))
+WMA2 = request.security(syminfo.tickerid, matimeframe2, ta.wma(src12, len12))
+VWMA2 = request.security(syminfo.tickerid, matimeframe2, ta.vwma(src12, len12))
+
+out2 = typeMA2 == 'EMA' ? EMA2 : typeMA2 == 'SMA' ? SMA2 : typeMA2 == 'SMMA (RMA)' ? SMMA2 : typeMA2 == 'WMA' ? WMA2 : typeMA2 == 'VWMA' ? VWMA2 : 0
+
+plot(allowma2 ? out2:na, color=macolor12, title="MA", offset=offset2)
+
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+//rsi indicator code
+ma(source, length, type) =>
+    switch type
+        "SMA" => ta.sma(source, length)
+        "Bollinger Bands" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+//
+
+rsiLengthInput = input.int(14, minval=1, title="RSI Length", group="RSI Settings")
+rsiSourceInput = input.source(close, "Source", group="RSI Settings")
+maTypeInput = input.string("SMA", title="MA Type", options=["SMA", "Bollinger Bands", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group="RSI Settings")
+maLengthInput = input.int(14, title="MA Length", group="RSI Settings")
+bbMultInput = input.float(2.0, minval=0.001, maxval=50, title="BB StdDev", group="RSI Settings")
+
+bullRangeTop = input.float(80, title="Bull Range Top for Shading Background", group="RSI Settings")
+bullRangeBottom = input.float(60, title="Bull Range Bottom for Shading Background", group="RSI Settings")
+bearRangeTop = input.float(40, title="Bear Range Top for Shading Background", group="RSI Settings")
+bearRangeBottom = input.float(20, title="Bear Range Bottom for Shading Background", group="RSI Settings")
+bearRangeColor = input.color(color.rgb(194, 6, 6, 78), title="Bear Range Color for Shading Background", group="RSI Settings")
+bullRangeColor = input.color(color.rgb(5, 175, 81, 74), title="Bear Range Color for Shading Background", group="RSI Settings")
+
+up = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+down2 = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi = down2 == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down2))
+rsiMA = ma(rsi, maLengthInput, maTypeInput)
+isBB = maTypeInput == "Bollinger Bands"
+
+//using the rsi indicator to shade the background colour based on whther the rsi is in a bullish or bearish range
+bool bullRange = rsi <= bullRangeTop and rsi >= bullRangeBottom
+bool bearRange = rsi <= bearRangeTop and rsi >= bearRangeBottom
+
+bgcolor(bullRange ? bullRangeColor : color(na))
+bgcolor(bearRange ? bearRangeColor : color(na))
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+//zigzag indicator code
+Depth       = input.int(12, "Depth", minval=1, step=1, group="Zigzag Settings (only for SL)")
+Deviation   = input.int(5, "Deviation", minval=1, step=1, group="Zigzag Settings (only for SL)")
+Backstep    = input.int(3, "Backstep", minval=2, step=1, group="Zigzag Settings (only for SL)")
+line_thick  = input.int(2, "Line Thickness", minval=1, maxval=4, group="Zigzag Settings (only for SL)")
+upcolor     = input.color(color.new(color.lime, 0), "Color of up zigzag line", group="Zigzag Settings (only for SL)")
+dncolor     = input.color(color.new(color.red, 0), "Color of down zigzag line", group="Zigzag Settings (only for SL)")
+text_color  = input.color(color.white, "Text color for labels of zigzag", group="Zigzag Settings (only for SL)")
+Show_zz     = input.bool(true, "Show Zigzag?", group="Zigzag Settings (only for SL)")
+repaint     = input(true, "Repaint Levels", group="Zigzag Settings (only for SL)")
+
+
+var last_h = 1, last_h := last_h + 1
+var last_l = 1, last_l := last_l + 1
+var lw = 1, var hg = 1
+lw := lw + 1, hg := hg + 1
+p_lw = -ta.lowestbars(Depth), p_hg = -ta.highestbars(Depth)
+lowing = lw == p_lw or low - low[p_lw] > Deviation*syminfo.mintick
+highing = hg == p_hg or high[p_hg] - high > Deviation*syminfo.mintick
+lh = ta.barssince(not highing[1]), ll = ta.barssince(not lowing[1])
+down = ta.barssince(not (lh > ll)) >= Backstep, lower = low[lw] > low[p_lw], higher = high[hg] < high[p_hg]
+if lw != p_lw and (not down[1] or lower)
+    lw := p_lw < hg ? p_lw : 0
+if hg != p_hg and (down[1] or higher)
+    hg := p_hg < lw ? p_hg : 0
+
+line zz = na
+label point = na
+x1 = down ? lw : hg
+y1 = down ? low[lw] : high[hg]
+
+if down == down[1]
+    if repaint
+        label.delete(point[1])
+        line.delete(zz[1])
+    down
+if down != down[1]
+    if down
+        last_h := hg
+    else
+        last_l := lw
+    if not repaint
+        nx = down?last_h:last_l
+        if Show_zz == true
+            zz := line.new(bar_index-nx, down ? high[nx] : low[nx], bar_index-(down?last_l:last_h), down ? low[last_l] : high[last_h], width=line_thick, color=down?upcolor:dncolor)
+            point := label.new(bar_index-nx, down ? high[nx] : low[nx], down ? (high[nx] > high[last_h[1]]?"HH":"LH") : (low[nx] < low[last_l[1]] ? "LL" : "HL"), style=down?label.style_label_down:label.style_label_up, size=size.tiny, color=down?dncolor:upcolor, textcolor=color.new(text_color, 0), tooltip = down ? (high[nx] > high[last_h[1]]?"Higher High":"Lower High") : (low[nx] < low[last_l[1]] ? "Lower Low" : "Higher Low"))
+        
+    down
+    
+if repaint
+    if Show_zz == true
+        zz := line.new(bar_index-(down?last_h:last_l), down ? high[last_h] : low[last_l], bar_index-x1, y1, width=line_thick, color=down?dncolor:upcolor)
+        point := label.new(bar_index-x1, y1, down ? (low[x1] < low[last_l] ? "LL" : "HL") : (high[x1] > high[last_h]?"HH":"LH"), style=down?label.style_label_up:label.style_label_down, size=size.tiny, color=down?upcolor:dncolor, textcolor=color.new(text_color, 0), tooltip = down ? (low[x1] < low[last_l] ? "Lower Low" : "Higher Low") : (high[x1] > high[last_h]?"Higher High":"Lower High"))
+// 
+
+
+
+//zigzag logic
+var float zzUp = 0
+var float zzDwn = 0
+
+zzUp := not down ? high[x1] : zzUp[1]
+zzDwn := down ? low[x1] : zzDwn[1]
+
+
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+var track = 0
+var bool swingHigh = false
+
+//ao indicator calculation
+ao = ta.sma(hl2,5) - ta.sma(hl2,34)
+diff = ao - ao[1]
+
+//zigzag inputs
+Depth1       = input.int(144, "Depth1", minval=1, step=1, group="Zigzag Settings (for Divergence)")
+Deviation1   = input.int(75, "Deviation1", minval=1, step=1, group="Zigzag Settings (for Divergence)")
+Backstep1    = input.int(21, "Backstep1", minval=2, step=1, group="Zigzag Settings (for Divergence)")
+line_thick1  = input.int(2, "Line Thickness", minval=1, maxval=4, group="Zigzag Settings (for Divergence)")
+upcolor1     = input.color(color.new(color.lime, 0), "Color of up zigzag line", group="Zigzag Settings (for Divergence)")
+dncolor1     = input.color(color.new(color.red, 0), "Color of down zigzag line", group="Zigzag Settings (for Divergence)")
+text_color1  = input.color(color.white, "Text color for labels of zigzag", group="Zigzag Settings (for Divergence)")
+Show_zz1     = input.bool(true, "Show Zigzag?", group="Zigzag Settings (for Divergence)")
+repaint1     = input(false, "Repaint Levels", group="Zigzag Settings (for Divergence)")
+
+rbullishcolor     = input.color(color.new(color.lime, 0), "Color of REG bullish divergences", group="Divergence Settings")
+rbearishcolor     = input.color(color.new(color.red, 0), "Color of REG bearish divergences", group="Divergence Settings")
+
+hbullishcolor     = input.color(color.new(#2f9c21, 0), "Color of HID bullish divergences", group="Divergence Settings")
+hbearishcolor     = input.color(color.new(#861a1a, 0), "Color of HID bearish divergences", group="Divergence Settings")
+
+
+//zigzag indicator calculation
+var last_h1 = 1, last_h1 := last_h1 + 1
+var last_l1 = 1, last_l1 := last_l1 + 1
+var lw1 = 1, var hg1 = 1
+lw1 := lw1 + 1, hg1 := hg1 + 1
+p_lw1 = -ta.lowestbars(Depth1), p_hg1 = -ta.highestbars(Depth1)
+lowing1 = lw1 == p_lw1 or low - low[p_lw1] > Deviation1*syminfo.mintick
+highing1 = hg1 == p_hg1 or high[p_hg1] - high > Deviation1*syminfo.mintick
+lh1 = ta.barssince(not highing1[1]), ll1 = ta.barssince(not lowing1[1])
+down1 = ta.barssince(not (lh1 > ll1)) >= Backstep1, lower1 = low[lw1] > low[p_lw1], higher1 = high[hg1] < high[p_hg1]
+if lw1 != p_lw1 and (not down1[1] or lower1)
+    lw1 := p_lw1 < hg1 ? p_lw1 : 0
+if hg1 != p_hg1 and (down1[1] or higher1)
+    hg1 := p_hg1 < lw1 ? p_hg1 : 0
+
+line zz1 = na
+label point1 = na
+x11 = down1 ? lw1 : hg1
+y11 = down1 ? low[lw1] : high[hg1]
+
+if down1 == down1[1]
+    if repaint1
+        label.delete(point1[1])
+        line.delete(zz1[1])
+    down1
+if down1 != down1[1]
+    if down1
+        last_h1 := hg1
+    else
+        last_l1 := lw1
+    if not repaint1
+        nx = down1?last_h1:last_l1
+        track := bar_index-nx
+        swingHigh := down1 ? true: false
+        if Show_zz1 == true
+            zz1 := line.new(bar_index-nx, down1 ? high[nx] : low[nx], bar_index-(down1?last_l1:last_h1), down1 ? low[last_l1] : high[last_h1], width=line_thick1, color=down1?upcolor1:dncolor1)
+            point1 := label.new(bar_index-nx, down1 ? high[nx] : low[nx], down1 ? (high[nx] > high[last_h1[1]]?"HH":"LH") : (low[nx] < low[last_l1[1]] ? "LL" : "HL"), style=down1?label.style_label_down:label.style_label_up, size=size.tiny, color=down1?dncolor1:upcolor1, textcolor=color.new(text_color1, 0), tooltip = down1 ? (high[nx] > high[last_h1[1]]?"Higher High":"Lower High") : (low[nx] < low[last_l1[1]] ? "Lower Low" : "Higher Low"))
+
+    down1
+    
+if repaint1
+    track := bar_index-x11
+    swingHigh := down1 ? false: true
+    if Show_zz1 == true
+        zz1 := line.new(bar_index-(down1?last_h1:last_l1), down1 ? high[last_h1] : low[last_l1], bar_index-x11, y11, width=line_thick1, color=down1?dncolor1:upcolor1)
+        point1 := label.new(bar_index-x11, y11, down1 ? (low[x11] < low[last_l1] ? "LL" : "HL") : (high[x11] > high[last_h1]?"HH":"LH"), style=down1?label.style_label_up:label.style_label_down, size=size.tiny, color=down1?upcolor1:dncolor1, textcolor=color.new(text_color1, 0), tooltip = down1 ? (low[x11] < low[last_l1] ? "Lower Low" : "Higher Low") : (high[x11] > high[last_h1]?"Higher High":"Lower High"))
+        
+// 
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//ao logic
+
+bool lookingForBull = false
+bool lookingForBear = false
+
+float curr_lowest = 0
+int bullStart = 0
+float curr_highest = 0
+int bearStart = 0
+
+var int bearishTrendlineStart = 0
+var int bullishTrendlineStart = 0
+
+var latestBullLine = line(na)
+var bullLineCounter = -1
+var latestBearLine = line(na)
+var bearLineCounter = -1
+
+//for regular div entry condition
+var float rBullLow2 = 0
+var float rBearHigh2 = 0
+
+var int rBullLow2Bar = 0
+var int rBearHigh2Bar = 0
+
+//for divergence entry conditions
+var int buyBarIndex = 0
+var int sellBarIndex = 0
+
+
+
+//to find where the ao range starts (the bar at which the ao first started being negative)
+findBuyStartPoint() =>
+    int shift = 0
+
+    int i = 0
+    while ao[i] < 0 
+        shift := i
+        i := i + 1
+    //
+
+    shift 
+//
+
+//to find the lowest ao in the current range (starting from its shift 0 upto the start of the range)
+findLowestAo(int start) =>
+    float lowest = 0
+    int end = bar_index - start
+
+    for i = 0 to end
+        if ao[i] < lowest
+            lowest := ao[i]
+    //
+
+    lowest
+//
+
+//to find lowest low (in price) in a given ao range 
+findLowestPrice(int start, int end) =>
+    int endShift = bar_index - end
+    int startShift = bar_index - start
+    float lowest = low[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if low[i] < lowest
+            lowest := low[i]
+            barTime := i
+        //
+    //
+
+    [lowest, barTime]
+// 
+
+//to find lowest low (in price) in a given price range for updating the trendline
+findLowest(int start, int end) =>
+    int endShift = end
+    int startShift = start
+    float lowest = low[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if low[i] < lowest
+            lowest := low[i]
+            barTime := i
+        //
+    //
+
+    [lowest, barTime]
+// 
+
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+//to find where the ao range starts (the bar at which the ao first started being negative)
+findSellStartPoint() =>
+    int shift = 0
+
+    int i = 0
+    while ao[i] > 0 
+        shift := i
+        i := i + 1
+    //
+
+    shift 
+//
+
+//to find the lowest ao in the current range (starting from its shift 0 upto the start of the range)
+findHighestAo(int start) =>
+    float highest = 0
+    int end = bar_index - start
+
+    for i = 0 to end
+        if ao[i] > highest
+            highest := ao[i]
+    //
+
+    highest
+//
+
+//to find lowest low (in price) in a given range 
+findHighestPrice(int start, int end) =>
+    int endShift = bar_index - end
+    int startShift = bar_index - start
+    float highest = high[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if high[i] > highest
+            highest := high[i]
+            barTime := i
+        //
+    //
+
+    [highest, barTime]
+// 
+
+//to find lowest low (in price) in a given price range for updating the trendline
+findHighest(int start, int end) =>
+    int endShift = end
+    int startShift = start
+    float highest = high[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if high[i] > highest
+            highest := high[i]
+            barTime := i
+        //
+    //
+
+    [highest, barTime]
+// 
+
+
+
+
+
+
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+//for bullish divergences
+
+bullStart := bar_index - findBuyStartPoint()
+curr_lowest := findLowestAo(bullStart)
+
+var minRangesLowest = array.new_float(0)
+var minRangesEnd = array.new_int(0)
+var minRangesStart = array.new_int(0)
+
+var int lowestIndex = -1
+var float lowestVal = 0
+var int lowestStart = -1
+
+//start afresh when there is a a zigzag down
+if not swingHigh
+    bullStart := 0
+    curr_lowest := 0
+    array.clear(minRangesLowest)
+    array.clear(minRangesEnd)
+    array.clear(minRangesStart)
+    lowestIndex := -1
+    lowestVal := 0
+    lowestStart := -1
+//
+
+
+if swingHigh
+    if ao < 0
+        lookingForBull := true
+//
+            
+
+
+//storing the lowest value, start shift & end shift of the current range & updating it as values change
+if lookingForBull == true  
+    int lastIndex = array.size(minRangesStart) - 1
+
+    if array.size(minRangesStart) >= 1 
+        if array.get(minRangesStart, lastIndex) != bullStart
+            array.push(minRangesStart, 0)
+            array.push(minRangesEnd, 0)
+            array.push(minRangesLowest, 0)
+        //
+    //
+
+    if array.size(minRangesStart) == 0
+        array.push(minRangesStart, 0)
+        array.push(minRangesEnd, 0)
+        array.push(minRangesLowest, 0)
+    //
+
+    lastIndex := array.size(minRangesStart)-1
+    array.set(minRangesLowest, lastIndex, curr_lowest) //set the lowest value for the current range
+    array.set(minRangesStart, lastIndex, bullStart) //set the start shift for the current range
+    array.set(minRangesEnd, lastIndex, bar_index) //set the end shift for the current range
+//
+
+
+//checking if there is more than 1 range to compare with the lowest ao val up untill the current bar
+if array.size(minRangesStart) >= 1 
+    int lastIndex = array.size(minRangesStart) - 1
+
+    if array.get(minRangesLowest, lastIndex) < lowestVal
+        lowestVal := array.get(minRangesLowest, lastIndex)
+        lowestIndex := lastIndex
+    //
+//
+
+
+//checking if there are more than 2 ranges to compare/ delete lines
+if array.size(minRangesStart) >= 2 
+
+    int lastIndex = array.size(minRangesStart) - 1
+
+    //get the start and end shifts of the 2 ranges
+    int start2 = array.get(minRangesStart, lastIndex)
+    int end2 = array.get(minRangesEnd, lastIndex)
+
+    int start1 = array.get(minRangesStart, lowestIndex)
+    int end1 = array.get(minRangesEnd, lowestIndex)
+
+    //if lowest in range 2 is greater than lowest in range 1
+    if array.get(minRangesLowest, lastIndex) > lowestVal
+        [lowest1, index1] = findLowestPrice(start1, end1)
+        [lowest2, index2] = findLowestPrice(start2, end2)
+
+        //check if lowest price in range 1 > lowest price in range 2
+        if lowest1 > lowest2 
+
+            if lowestStart != start1
+                latestBullLine := line.new(time[index2], lowest2, time[index1], lowest1, xloc = xloc.bar_time, extend = extend.none, color = rbullishcolor, style = line.style_solid, width = 1)
+                bullLineCounter := bullLineCounter + 1
+                lowestStart := start1
+            //
+
+            if lowestStart == start1
+
+                //to find the lowest low from the start of trendline to current bar
+                [currLowest, currLowestIndex] = findLowest(index1, 0)
+                
+                line.set_x1(latestBullLine, time[currLowestIndex])
+                line.set_y1(latestBullLine, currLowest)
+
+                //storing these values for entry condition
+                rBullLow2Bar := bar_index - currLowestIndex
+                rBullLow2 := currLowest
+            //
+
+        //
+
+    //
+
+//
+
+
+
+
+
+
+//for bearish divergences
+
+bearStart := bar_index - findSellStartPoint()
+curr_highest := findHighestAo(bearStart)
+
+var maxRangesHighest = array.new_float(0)
+var maxRangesEnd = array.new_int(0)
+var maxRangesStart = array.new_int(0)
+
+var int highestIndex = -1
+var float highestVal = 0
+var int highestStart = -1
+
+
+//start afresh when there is a a zigzag up
+if swingHigh
+    bearStart := 0
+    curr_highest := 0
+    array.clear(maxRangesHighest)
+    array.clear(maxRangesEnd)
+    array.clear(maxRangesStart)
+    highestIndex := -1
+    highestVal := 0
+    highestStart := -1
+//
+
+
+if not swingHigh
+    if ao > 0 
+        lookingForBear := true
+//
+            
+
+
+//storing the highest value, start shift & end shift of the current range & updating it as values change
+if lookingForBear == true 
+    int lastIndex = array.size(maxRangesStart) - 1
+
+    if array.size(maxRangesStart) >= 1 
+        if array.get(maxRangesStart, lastIndex) != bearStart
+            array.push(maxRangesStart, 0)
+            array.push(maxRangesEnd, 0)
+            array.push(maxRangesHighest, 0)
+        //
+    //
+
+    if array.size(maxRangesStart) == 0
+        array.push(maxRangesStart, 0)
+        array.push(maxRangesEnd, 0)
+        array.push(maxRangesHighest, 0)
+    //
+
+    lastIndex := array.size(maxRangesStart)-1
+    array.set(maxRangesHighest, lastIndex, curr_highest) //set the highest value for the current range
+    array.set(maxRangesStart, lastIndex, bearStart) //set the start shift for the current range
+    array.set(maxRangesEnd, lastIndex, bar_index) //set the end shift for the current range
+//
+
+
+//checking if there is more than 1 range to compare with the highest ao val up untill the current bar
+if array.size(maxRangesStart) >= 1 
+    int lastIndex = array.size(maxRangesStart) - 1
+
+    if array.get(maxRangesHighest, lastIndex) > highestVal
+        highestVal := array.get(maxRangesHighest, lastIndex)
+        highestIndex := lastIndex
+    //
+//
+
+
+//checking if there are more than 2 ranges to compare/ delete lines
+if array.size(maxRangesStart) >= 2  
+
+    int lastIndex = array.size(maxRangesStart) - 1
+    
+    //get the start and end shifts of the 2 ranges
+    int start2 = array.get(maxRangesStart, lastIndex)
+    int end2 = array.get(maxRangesEnd, lastIndex)
+
+    int start1 = array.get(maxRangesStart, highestIndex)
+    int end1 = array.get(maxRangesEnd, highestIndex)
+
+    //if highest in range 2 is lower than highest in range 1
+    if array.get(maxRangesHighest, lastIndex) < highestVal
+        [highest1, index1] = findHighestPrice(start1, end1)
+        [highest2, index2] = findHighestPrice(start2, end2)
+
+        //check if highest price in range 1 < highest price in range 2
+        if highest1 < highest2 
+
+            if highestStart != start1
+                latestBearLine := line.new(time[index2], highest2, time[index1], highest1, xloc = xloc.bar_time, extend = extend.none, color = rbearishcolor, style = line.style_solid, width = 1)
+                bearLineCounter := bearLineCounter + 1
+                highestStart := start1
+            //
+
+            if highestStart == start1
+                
+                //to find the highest high from the start of trendline to current bar
+                [currHighest, currHighestIndex] = findHighest(index1, 0)
+
+                line.set_x1(latestBearLine, time[currHighestIndex])
+                line.set_y1(latestBearLine, currHighest)
+
+                //storing these values for entry condition
+                rBearHigh2Bar := bar_index - currHighestIndex
+                rBearHigh2 := currHighest
+            //
+
+        //
+
+    //
+
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+//FOR BULLISH HIDDDEN DIVERGENCE
+
+
+
+//VARIABLES FOR HIDDEN DIV
+
+bool lookingForBull2 = false
+
+float curr_lowest2 = 0
+int bullStart2 = 0
+
+var minRangesLowest2 = array.new_float(0)
+var minRangesHighest2 = array.new_float(0)
+var minRangesEnd2 = array.new_int(0)
+var minRangesStart2 = array.new_int(0)
+
+var int lowestIndex2 = -1
+var int highestLowestIndex2 = -1
+
+var float lowestVal2 = 0
+var float highestLowestVal2 = -100000
+
+var int highestStartHid2 = -1
+
+
+//for hidden div entry condition
+var float hBullLow1 = 0
+var float hBearHigh1 = 0
+
+var float hBullLow2 = 0
+var float hBearHigh2 = 0
+
+var int hBearHigh2Bar = 0
+var int hBullLow2Bar = 0
+
+
+//LOGIC FOR HIDDEN DIV
+
+bullStart2 := bar_index - findBuyStartPoint()
+
+float lowest = 0
+int end = bar_index - bullStart2
+
+for i = 0 to end
+    if ao[i] < lowest
+        lowest := ao[i]
+//
+curr_lowest2 := lowest
+
+//start afresh when there is a a zigzag down
+if swingHigh
+    bullStart2 := 0
+    curr_lowest2 := 0
+    array.clear(minRangesLowest2)
+    array.clear(minRangesEnd2)
+    array.clear(minRangesStart2)
+    lowestIndex2 := -1
+    highestLowestIndex2 := -1
+    lowestVal2 := 0
+    highestLowestVal2 := -100000
+    highestStartHid2 := -1
+//
+
+
+if not swingHigh
+    if ao < 0
+        lookingForBull2 := true
+//
+
+
+//storing the lowest value, start shift & end shift of the current range & updating it as values change
+if lookingForBull2 == true  
+    int lastIndex = array.size(minRangesStart2) - 1
+
+    if array.size(minRangesStart2) >= 1  //if there are elements in the arrays already, 
+        if array.get(minRangesStart2, lastIndex) != bullStart2 //and a new range has started, push new elements in the arrays which are made for that range specifically
+            array.push(minRangesStart2, 0)
+            array.push(minRangesEnd2, 0)
+            array.push(minRangesLowest2, 0)
+        //
+    //
+
+    if array.size(minRangesStart2) == 0  //if there is nothing in the array, push a new element in to store values
+        array.push(minRangesStart2, 0)
+        array.push(minRangesEnd2, 0)
+        array.push(minRangesLowest2, 0)
+    //
+
+    lastIndex := array.size(minRangesStart2)-1
+    array.set(minRangesLowest2, lastIndex, curr_lowest2) //set the lowest value for the current range
+    array.set(minRangesStart2, lastIndex, bullStart2) //set the start shift for the current range
+    array.set(minRangesEnd2, lastIndex, bar_index) //set the end shift for the current range
+//
+
+
+if array.size(minRangesLowest2) >= 2 and ao[1] < ao and ao >= 0
+    int lastIndex = array.size(minRangesLowest2) - 1
+
+    //only compare the lowest value of R2 (current range) with lowest value of R1 (previous range) once R2 is complete
+    if array.get(minRangesLowest2, lastIndex) > array.get(minRangesLowest2, lastIndex- 1) and array.get(minRangesLowest2, lastIndex) > highestLowestVal2 //checking if there is a higher low in the current range
+        highestLowestVal2 := array.get(minRangesLowest2, lastIndex)
+        highestLowestIndex2 := lastIndex
+    //
+//
+
+
+bool bullHidDiv = false
+float _lowest1 = 0, float _lowest2 = 0
+
+
+if array.size(minRangesLowest2) >= 2 and highestLowestIndex2 >= 0
+
+    int lastIndex = array.size(minRangesLowest2) - 1
+    
+    //get the start and end shifts of the 2 ranges
+    int start2 = array.get(minRangesStart2, lastIndex)
+    int end2 = array.get(minRangesEnd2, lastIndex)
+
+    int start1 = array.get(minRangesStart2, highestLowestIndex2)
+    int end1 = array.get(minRangesEnd2, highestLowestIndex2)
+
+    //if lowest in range 2 is lesser than lowest in range 1
+    if array.get(minRangesLowest2, lastIndex) < highestLowestVal2 and highestLowestIndex2 < lastIndex
+
+        int endShift = bar_index - end1
+        int startShift = bar_index - start1
+        int index1 = 0
+        _lowest1 := low[startShift]
+        
+        //DO NOT CHANGE THE WAY THE 2ND IF CONDITION IS WRITTEN, BECAUSE IT ONLY WORKS THIS WAY... I DONT KNOW WHY THOUGH
+        for i = startShift to endShift
+            if low[i] < _lowest1
+                _lowest1 := low[i]
+            //
+
+            if low[i] <= _lowest1
+                index1 := i
+            //
+        //
+
+        endShift := bar_index - end2
+        startShift := bar_index - start2
+        int index2 = 0
+        _lowest2 := low[startShift]
+        
+        //DO NOT CHANGE THE WAY THE 2ND IF CONDITION IS WRITTEN, BECAUSE IT ONLY WORKS THIS WAY... I DONT KNOW WHY THOUGH
+        for i = endShift to startShift
+
+            if low[i] < _lowest2
+                _lowest2 := low[i]
+            //
+
+            if low[i] <= _lowest2
+                index2 := i
+            //
+        //
+
+
+        //check if lowest price in range 1 < lowest price in range 2
+        if _lowest1 < _lowest2 
+            bullHidDiv := true
+            line.new(time[index1], _lowest1, time[index2], _lowest2, xloc = xloc.bar_time, extend = extend.none, color = hbullishcolor, style = line.style_solid, width = 1)
+        //
+
+        //storing these values for entry condition
+        hBullLow2 := _lowest2
+        hBullLow1 := _lowest1
+        hBullLow2Bar := bar_index - index2
+    //
+//
+
+
+
+
+
+
+
+
+
+
+
+
+//FOR BEARISH HIDDDEN DIVERGENCE
+
+
+
+//VARIABLES FOR HIDDEN DIV
+
+bool lookingForBear2 = false
+
+float curr_highest2 = 0
+int bearStart2 = 0
+
+var maxRangesHighest2 = array.new_float(0)
+var maxRangesLowest2 = array.new_float(0)
+var maxRangesEnd2 = array.new_int(0)
+var maxRangesStart2 = array.new_int(0)
+
+var int highestIndex2 = -1
+var int lowestHighestIndex2 = -1
+
+var float lowestHighestVal2 = 100000
+
+var int lowestStartHid2 = -1
+
+
+
+//LOGIC FOR HIDDEN DIV
+
+bearStart2 := bar_index - findSellStartPoint()
+
+float highest = 0
+int end3 = bar_index - bearStart2
+
+for i = 0 to end3
+    if ao[i] > highest
+        highest := ao[i]
+//
+curr_highest2 := highest
+
+//start afresh when there is a a zigzag down
+if not swingHigh
+    bearStart2 := 0
+    curr_highest2 := 0
+    array.clear(maxRangesHighest2)
+    array.clear(maxRangesEnd2)
+    array.clear(maxRangesStart2)
+    highestIndex2 := -1
+    lowestHighestIndex2 := -1
+    lowestHighestVal2 := 100000
+    lowestStartHid2 := -1
+//
+
+
+if swingHigh
+    if ao > 0
+        lookingForBear2 := true
+//
+
+
+//storing the highest value, start shift & end shift of the current range & updating it as values change
+if lookingForBear2 == true  
+    int lastIndex = array.size(maxRangesStart2) - 1
+
+    if array.size(maxRangesStart2) >= 1  //if there are elements in the arrays already, 
+        if array.get(maxRangesStart2, lastIndex) != bearStart2 //and a new range has started, push new elements in the arrays which are made for that range specifically
+            array.push(maxRangesStart2, 0)
+            array.push(maxRangesEnd2, 0)
+            array.push(maxRangesHighest2, 0)
+        //
+    //
+
+    if array.size(maxRangesStart2) == 0  //if there is nothing in the array, push a new element in to store values
+        array.push(maxRangesStart2, 0)
+        array.push(maxRangesEnd2, 0)
+        array.push(maxRangesHighest2, 0)
+    //
+
+    lastIndex := array.size(maxRangesStart2)-1
+    array.set(maxRangesHighest2, lastIndex, curr_highest2) //set the highest value for the current range
+    array.set(maxRangesStart2, lastIndex, bearStart2) //set the start shift for the current range
+    array.set(maxRangesEnd2, lastIndex, bar_index) //set the end shift for the current range
+//
+
+
+if array.size(maxRangesHighest2) >= 2 and ao[1] > ao and ao < 0
+    int lastIndex = array.size(maxRangesHighest2) - 1
+
+    //only compare the highest value of R2 (current range) with highest value of R1 (previous range) once R2 is complete
+    if array.get(maxRangesHighest2, lastIndex) < array.get(maxRangesHighest2, lastIndex- 1) and array.get(maxRangesHighest2, lastIndex) < lowestHighestVal2 //checking if there is a lower high in the current range
+        lowestHighestVal2 := array.get(maxRangesHighest2, lastIndex)
+        lowestHighestIndex2 := lastIndex
+    //
+//
+
+
+bool bearHidDiv = false
+float _highest1 = 0, float _highest2 = 0
+
+
+if array.size(maxRangesHighest2) >= 2 and lowestHighestIndex2 >= 0
+
+    int lastIndex = array.size(maxRangesHighest2) - 1
+    
+    //get the start and end shifts of the 2 ranges
+    int start2 = array.get(maxRangesStart2, lastIndex)
+    int end2 = array.get(maxRangesEnd2, lastIndex)
+
+    int start1 = array.get(maxRangesStart2, lowestHighestIndex2)
+    int end1 = array.get(maxRangesEnd2, lowestHighestIndex2)
+
+    //if highest in range 2 is greater than highest in range 1
+    if array.get(maxRangesHighest2, lastIndex) > lowestHighestVal2 and lowestHighestIndex2 < lastIndex
+
+
+        int startShift = bar_index - start1
+        int endShift = bar_index - end1
+        int _index1 = 0
+        _highest1 := high[startShift]
+
+        for i = startShift to endShift 
+            if high[i] > _highest1
+                _highest1 := high[i]
+            //
+
+            if high[i] >= _highest1
+                _index1 := i
+            //
+        //
+
+        startShift := bar_index - start2
+        endShift := bar_index - end2
+        int _index2 = 0
+        _highest2 := high[startShift]
+
+        for i = startShift to endShift 
+            if high[i] > _highest2
+                _highest2 := high[i]
+            //
+
+            if high[i] >= _highest2
+                _index2 := i
+            //
+        //
+
+
+        //check if highest price in range 1 < highest price in range 2
+        if _highest1 > _highest2 
+            bearHidDiv := true
+            line.new(time[_index1], _highest1, time[_index2], _highest2, xloc = xloc.bar_time, extend = extend.none, color = hbearishcolor, style = line.style_solid, width = 1)
+        //
+
+        //storing these values for entry condition
+        hBearHigh2 := _highest2
+        hBearHigh1 := _highest1
+        hBearHigh2Bar := bar_index - _index2
+
+    //
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+//for checking if atleast 1 entry condition (except divergence entry conditions) is true 
+checkIfTrue(bool cond1, bool cond2, bool cond3) => cond1 or cond2 or cond3
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//BUY ENTRY CONDITIONS
+
+//entry condition for price to close above/below single ma or both mas
+bool bullishMaClose = (close[entryShiftInput] > out[entryShiftInput] and useMaSlowInput and not useMaFastInput)  or  (close[entryShiftInput] > out2[entryShiftInput] and useMaFastInput and not useMaSlowInput)  or  (close[entryShiftInput] > out[entryShiftInput] and close[entryShiftInput] > out2[entryShiftInput] and useMaSlowInput and useMaFastInput)
+bool bullishPriceClose = (bullishMaClose and priceCloseEntryInput) or not priceCloseEntryInput
+bool bullishPriceCloseTrue = (bullishMaClose and priceCloseEntryInput) 
+
+//entry condition for low/high to be above/below either ma
+bool bullishMaExt = (low[entryShiftInput] < out[entryShiftInput] and useMaSlowInput)  or  (low[entryShiftInput] < out2[entryShiftInput] and useMaFastInput)  
+bool bullishPriceExt = (bullishMaExt and priceExtEntryInput) or not priceExtEntryInput
+bool bullishPriceExtTrue = (bullishMaExt and priceExtEntryInput) 
+
+//entry condition for candle on x shift to be in a bearish/bullish range
+bool bullishRsiZone = (bullRange[entryShiftInput] and rsiZoneEntryInput) or not rsiZoneEntryInput
+bool bullishRsiZoneTrue = (bullRange[entryShiftInput] and rsiZoneEntryInput)
+
+//entry condition for ao regular divergence
+//"bullishPriceClose and bullishPriceExt and LorenBuy" to make sure that all the selected entries are true & "checkIfTrue(bullishPriceCloseTrue, bullishPriceExtTrue, LorenBuyTrue)" to make sure that atleast 1 other entry condition is true
+bool bullishRNotFar = rBearHigh2Bar < rBullLow2Bar and sellBarIndex < rBullLow2Bar
+bool bullishRDiv = (rDivEntryInput and bullishPriceClose and bullishPriceExt and bullishRsiZone and bullishRNotFar and checkIfTrue(bullishPriceCloseTrue, bullishPriceExtTrue, bullishRsiZoneTrue) and (ta.lowestbars(low, (bar_index - rBullLow2Bar)+ 1) * -1) == bar_index - rBullLow2Bar) or not rDivEntryInput
+
+//entry condition for ao hidden divergence
+bool bullishHNotFar = hBearHigh2Bar < hBullLow2Bar and sellBarIndex < hBullLow2Bar
+bool bullishHDiv = (hDivEntryInput and bullHidDiv and bullishPriceClose and bullishPriceExt and bullishRsiZone and checkIfTrue(bullishPriceCloseTrue, bullishPriceExtTrue, bullishRsiZoneTrue) and (ta.lowestbars(low, (bar_index - hBullLow2Bar)+ 1) * -1) == bar_index - hBullLow2Bar) or not hDivEntryInput
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//SELL ENTRY CONDITIONS
+
+//entry condition for price to close below ma 
+bool bearishMaClose = (close[entryShiftInput] < out[entryShiftInput] and useMaSlowInput and not useMaFastInput)  or  (close[entryShiftInput] < out2[entryShiftInput] and useMaFastInput and not useMaSlowInput)  or  (close[entryShiftInput] < out[entryShiftInput] and close[entryShiftInput] < out2[entryShiftInput] and useMaSlowInput and useMaFastInput)
+bool bearishPriceClose = (bearishMaClose and priceCloseEntryInput) or not priceCloseEntryInput
+bool bearishPriceCloseTrue = (bearishMaClose and priceCloseEntryInput)
+
+//entry condition for high to be above ma
+bool bearishMaExt = (high[entryShiftInput] > out[entryShiftInput] and useMaSlowInput)  or  (high[entryShiftInput] > out2[entryShiftInput] and useMaFastInput)  
+bool bearishPriceExt = (bearishMaExt and priceExtEntryInput) or not priceExtEntryInput
+bool bearishPriceExtTrue = (bearishMaExt and priceExtEntryInput) 
+
+//entry condition for candle on x shift to be in a bearish/bullish range
+bool bearishRsiZone = (bearRange[entryShiftInput] and rsiZoneEntryInput) or not rsiZoneEntryInput
+bool bearishRsiZoneTrue = (bearRange[entryShiftInput] and rsiZoneEntryInput)
+
+//entry condition for ao regular divergence
+//"bearishPriceClose and bearishPriceExt " to make sure that all the selected entries are true & "checkIfTrue(bearishPriceCloseTrue, bearishPriceExtTrue)" to make sure that atleast 1 other entry condition is true
+bool bearishRNotFar = rBullLow2Bar < rBearHigh2Bar and buyBarIndex < rBearHigh2Bar
+bool bearishRDiv = (rDivEntryInput and bearishPriceClose and bearishPriceExt and bearishRsiZone and bearishRNotFar and checkIfTrue(bearishPriceCloseTrue, bearishPriceExtTrue, bearishRsiZoneTrue) and (ta.highestbars(high, (bar_index - rBearHigh2Bar)+ 1) * -1) == bar_index - rBearHigh2Bar) or not rDivEntryInput
+
+//entry condition for ao hidden divergence
+bool bearishHNotFar = hBullLow2Bar < hBearHigh2Bar and buyBarIndex < hBearHigh2Bar
+bool bearishHDiv = (hDivEntryInput and bearHidDiv and bearishPriceClose and bearishPriceExt and bearishRsiZone and bearishHNotFar and checkIfTrue(bearishPriceCloseTrue, bearishPriceExtTrue, bearishRsiZoneTrue) and (ta.highestbars(high, (bar_index - hBearHigh2Bar)+ 1) * -1) == bar_index - hBearHigh2Bar) or not hDivEntryInput
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//ENTRY
+var float buySL = 0
+var float sellSL = 0
+var float buyTP = 0
+var float sellTP = 0
+float entry_price = strategy.opentrades.entry_price(strategy.opentrades - 1)
+
+bool sltpExit = strategy.opentrades == 0 and useSLTPExitInput and not oppositeTradeExitInput
+bool closeCondExit = oppositeTradeExitInput and not useSLTPExitInput
+bool bothExit = useSLTPExitInput and oppositeTradeExitInput
+
+
+bool check1 = false
+
+//sell entry
+if bearishPriceClose and bearishPriceExt and bearishRDiv and bearishHDiv and bearishRsiZone and (sltpExit or closeCondExit or bothExit)
+    strategy.entry(id="sell entry", direction=strategy.short, qty = lotsInput)
+    entry_price := strategy.opentrades.entry_price(strategy.opentrades - 1)
+    sellBarIndex := bar_index
+
+    if oppositeTradeExitInput
+        strategy.close("buy entry", qty_percent = 100, immediately = true)
+        check1 := true
+//
+
+
+//sl & tp for sell
+//this might not work because there might hv been a new trade on the previous bar, if that is so, it wont set the tp or sl
+if (strategy.opentrades[1] == 0 and strategy.opentrades[0] == 1 and strategy.position_size < 0 and useSLTPExitInput) or (check1 == true and useSLTPExitInput and strategy.opentrades[0] == 1 and strategy.opentrades[1] == 0)
+    sellSL := useZZSLExitInput ? zzUp : useRDivSLExitInput ? rBearHigh2 : useH1DivSLExitInput ? hBearHigh1 : useH2DivSLExitInput ? hBearHigh2 : 0
+    sellTP := entry_price - ((sellSL > entry_price ? sellSL - entry_price : entry_price - sellSL) * tpRatioInput)
+    
+//
+
+
+//to visualize tp and sl levels only for single trades because it only works for that
+plot(strategy.position_size < 0 and useSLTPExitInput ? sellSL : na, 'Sell sl', color = color.red, style = plot.style_linebr)
+plot(strategy.position_size < 0 and useSLTPExitInput ? sellTP : na, 'Sell tp', color = color.lime, style = plot.style_linebr)
+
+//exiting sell trades
+if strategy.opentrades.size(strategy.opentrades - 1) < 0
+    if useSLTPExitInput
+        strategy.exit('sell exit', "sell entry", stop = sellSL, limit = sellTP, comment_loss = 'sl hit', comment_profit = 'tp hit')
+    //
+//
+
+
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+bool check3 = false
+
+//buy entry
+if bullishPriceClose and bullishPriceExt and bullishRDiv and bullishHDiv and bullishRsiZone and (sltpExit or closeCondExit or bothExit)
+    strategy.entry(id="buy entry", direction=strategy.long, qty = lotsInput)
+    entry_price := strategy.opentrades.entry_price(strategy.opentrades - 1)
+    buyBarIndex := bar_index
+
+    if oppositeTradeExitInput
+        strategy.close("sell entry", qty_percent = 100, immediately = true)
+        check3 := true
+//
+
+//sl & tp for buy
+//this might not work because there might hv been a new trade on the previous bar, if that is so, it wont set the tp or sl
+if (strategy.opentrades[1] == 0 and strategy.opentrades[0] == 1 and strategy.position_size > 0 and useSLTPExitInput) or (check3 == true and useSLTPExitInput and strategy.opentrades[0] == 1 and strategy.opentrades[1] == 0)
+    buySL := useZZSLExitInput ? zzDwn : useRDivSLExitInput ? rBullLow2 : useH1DivSLExitInput ? hBullLow1 : useH2DivSLExitInput ? hBullLow2 : 0
+    buyTP := entry_price + ((entry_price > buySL ? entry_price - buySL : buySL - entry_price) * tpRatioInput)
+//
+
+
+//to visualize tp and sl levels only for single trades because it only works for that
+plot(strategy.position_size > 0 and useSLTPExitInput ? buySL : na, 'Buy sl', color = color.red, style = plot.style_linebr)
+plot(strategy.position_size > 0 and useSLTPExitInput ? buyTP : na, 'Buy tp', color = color.lime, style = plot.style_linebr)
+
+//exiting buy trades
+if strategy.opentrades.size(strategy.opentrades - 1) > 0
+    if useSLTPExitInput
+        strategy.exit('buy exit', "buy entry", stop = buySL, limit = buyTP, comment_loss = 'sl hit', comment_profit = 'tp hit')
+    //
+//
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
