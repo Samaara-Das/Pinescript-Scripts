@@ -8,11 +8,11 @@ Entry conditions -
 4. There has to be a Regular/Hidden divergence within <x> bars before shift 1 (optional)
 
 Exit conditions - 
-1. stop loss below last zigzag swing low 
-2. or stop loss below div high/low if ao div is checked
-3. take profit : risk:reward 
-4. or close when sell entry is done 
-5. or close when kernel color changes 
+1. Stop loss at the latest swing
+2. Stop loss below divergence high/low (if chosen)
+3. Take profit (it's risk:reward based)
+4. When an opposite entry happens
+5. When the Kernel line changes its colour
 
 **Note about exits:**
 if tp & sl input is true but close condition is false, it will work for single trades (1 trade at a time)
