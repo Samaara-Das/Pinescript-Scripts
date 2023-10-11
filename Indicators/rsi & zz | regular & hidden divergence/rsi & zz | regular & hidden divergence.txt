@@ -1,0 +1,323 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © sammie123567858
+
+//@version=5
+indicator("rsi regular divergence", shorttitle="RSI DIVERGENCE", overlay=true, max_lines_count=500, max_bars_back=5000)
+//this version currently works
+// this draws regular divergences of 2 logics of 2 degrees
+
+//zigzag indicator for degree 1
+Depth       = input.int(12, "Depth", minval=1, step=1, group = "Degree 1")
+Deviation   = input.int(5, "Deviation", minval=1, step=1, group = "Degree 1")
+Backstep    = input.int(3, "Backstep", minval=2, step=1, group = "Degree 1")
+line_thick  = input.int(2, "Line Thickness ", minval=1, maxval=4, group = "Degree 1")
+Show_zz     = input.bool(false, "Show Zigzag?", group = "Degree 1")
+show_normal = input.bool(true, "Show Regular Divergence?", group = "Degree 1")
+regBullColor1     = input.color(#07c500, "Bull Divergence Color", group = "Degree 1")
+regBearColor1     = input.color(#a30000, "Bear Divergence Color", group = "Degree 1")
+
+
+//zigzag indicator for degree 2
+Depth1       = input.int(3, "Depth", minval=1, step=1, group = "Degree 2")
+Deviation1   = input.int(2, "Deviation", minval=1, step=1, group = "Degree 2")
+Backstep1    = input.int(2, "Backstep", minval=2, step=1, group = "Degree 2")
+Show_zz1     = input.bool(false, "Show Zigzag?", group = "Degree 2")
+show_normal1 = input.bool(true, "Show Regular Divergence?", group = "Degree 2")
+regBullColor2     = input.color(#07c500, "Bull Divergence Color", group = "Degree 2")
+regBearColor2     = input.color(#a30000, "Bear Divergence Color", group = "Degree 2")
+
+upcolor     = input.color(color.new(color.lime, 0), "ZigZag Bull Color", group = "General")
+dncolor     = input.color(color.new(color.red, 0), "ZigZag Bear Color", group = "General")
+text_color  = input.color(color.white, "Text color for labels of zigzag", group = "General")
+repaint     = input(true, "Repaint Levels", group = "General")
+
+
+
+
+//rsi code
+rsiLengthInput = input.int(14, minval=1, title="RSI Length", group="RSI Settings")
+rsiSourceInput = input.source(close, "Source", group="RSI Settings")
+
+
+up = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+down2 = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi = down2 == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down2))
+
+Line = line(na)
+Line1 = line(na)
+Line2 = line(na)
+Line3 = line(na)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// FOR DEGREE 1
+
+var last_h = 1, last_h := last_h + 1
+var last_l = 1, last_l := last_l + 1
+var lw = 1, var hg = 1
+lw := lw + 1, hg := hg + 1
+p_lw = -ta.lowestbars(Depth), p_hg = -ta.highestbars(Depth)
+lowing = lw == p_lw or low - low[p_lw] > Deviation*syminfo.mintick
+highing = hg == p_hg or high[p_hg] - high > Deviation*syminfo.mintick
+lh = ta.barssince(not highing[1]), ll = ta.barssince(not lowing[1])
+down = ta.barssince(not (lh > ll)) >= Backstep, lower = low[lw] > low[p_lw], higher = high[hg] < high[p_hg]
+if lw != p_lw and (not down[1] or lower)
+    lw := p_lw < hg ? p_lw : 0
+if hg != p_hg and (down[1] or higher)
+    hg := p_hg < lw ? p_hg : 0
+
+line zz = na
+label point = na
+x1 = down ? lw : hg
+y1 = down ? low[lw] : high[hg]
+
+if down == down[1]
+    if repaint
+        label.delete(point[1])
+        line.delete(zz[1])
+    down
+if down != down[1]
+    if down
+        last_h := hg
+    else
+        last_l := lw
+    if not repaint
+        nx = down?last_h:last_l
+        if Show_zz == true
+            zz := line.new(bar_index-nx, down ? high[nx] : low[nx], bar_index-(down?last_l:last_h), down ? low[last_l] : high[last_h], width=line_thick, color=down?upcolor:dncolor)
+            point := label.new(bar_index-nx, down ? high[nx] : low[nx], down ? (high[nx] > high[last_h[1]]?"HH":"LH") : (low[nx] < low[last_l[1]] ? "LL" : "HL"), style=down?label.style_label_down:label.style_label_up, size=size.tiny, color=down?dncolor:upcolor, textcolor=color.new(text_color, 0), tooltip = down ? (high[nx] > high[last_h[1]]?"Higher High":"Lower High") : (low[nx] < low[last_l[1]] ? "Lower Low" : "Higher Low"))
+        
+    down
+    
+if repaint
+    if Show_zz == true
+        zz := line.new(bar_index-(down?last_h:last_l), down ? high[last_h] : low[last_l], bar_index-x1, y1, width=line_thick, color=down?dncolor:upcolor)
+        point := label.new(bar_index-x1, y1, down ? (low[x1] < low[last_l] ? "LL" : "HL") : (high[x1] > high[last_h]?"HH":"LH"), style=down?label.style_label_up:label.style_label_down, size=size.tiny, color=down?upcolor:dncolor, textcolor=color.new(text_color, 0), tooltip = down ? (low[x1] < low[last_l] ? "Lower Low" : "Higher Low") : (high[x1] > high[last_h]?"Higher High":"Lower High"))
+// ]
+
+
+
+
+
+//sell divergence
+var int rsi_current_l_shift = 0
+rsi_current_l_shift := down ? x1:rsi_current_l_shift[1] + 1 //number of bars back the last low is
+
+var int rsi_current_h_ = 0
+rsi_current_h_ := not down ? x1: rsi_current_h_[1] + 1
+
+val = ta.highest(rsi, rsi_current_h_ + 1)
+val1 = na(rsi_current_l_shift) == false ? ta.highest(rsi, rsi_current_l_shift + 1): 0.0
+
+var float retain_prev_highest = 0.0 //for keeping and storing previous highest value
+var float prev_highest = 0.0 //for getting previous highest value
+var float curr_highest = 0.0 //for getting current highest value
+
+prev_highest := rsi_current_h_ >= 1 ? val : prev_highest[1] //to get rsi highest value in previous range
+curr_highest := rsi_current_l_shift >= 1 ? val1 : curr_highest[1] //to get rsi highest value in current range
+    
+if down
+    prev_highest := prev_highest[rsi_current_l_shift] //get the highest value exactly when the low formed because a new higher rsi value could have formed on that low, so to get the most recent high, this code is there
+    retain_prev_highest := prev_highest //to get highest value in prev range only when the low comes so that the value won't change and it will be the same
+
+
+//buy divergence
+var int rsi_current_h_shift = 0
+rsi_current_h_shift := not down ? x1:rsi_current_h_shift[1] + 1 //number of bars back the last high is
+
+var int rsi_current_l_ = 0
+rsi_current_l_ := down ? x1: rsi_current_l_[1] + 1
+
+val2 = ta.lowest(rsi, nz(rsi_current_l_) + 1 ) //to find lowest low in previous range
+val3 = ta.lowest(rsi, rsi_current_h_shift + 1) //to find lowest low in current range
+
+var float retain_prev_lowest = 0.0 //for keeping and storing previous lowest value
+var float prev_lowest = 0.0 //for getting previous lowest value
+var float curr_lowest = 0.0 //for getting current lowest value
+
+prev_lowest := rsi_current_l_ >= 1 ? val2 : prev_lowest[1] //to get rsi lowest value in previous range
+curr_lowest := rsi_current_h_shift >= 1 ? val3 : curr_lowest[1] //to get rsi lowest value in current range
+    
+if not down
+    prev_lowest := prev_lowest[rsi_current_h_shift] //get the lowest value exactly when the high formed because a new lower rsi value could have formed on that high, so to get the most recent low, this code is there
+    retain_prev_lowest := prev_lowest //to get lowest value in prev range only when the high comes so that the value won't change and it will be the same
+
+
+
+
+
+//to compare rsi values and plot regular or hidden divergences
+if show_normal
+    //for sell divergence | logic 1
+    if high[x1] > high[last_h] and not down and retain_prev_highest > curr_highest 
+        Line1 := line.new(bar_index - last_h, high[last_h], bar_index - x1, high[x1], extend=extend.none, color=regBearColor1)
+
+    //for buy divergence | logic 1
+    if low[x1] < low[last_l] and down and retain_prev_lowest < curr_lowest 
+        Line := line.new(bar_index - last_l, low[last_l], bar_index - x1, low[x1], extend=extend.none, color=regBullColor1)
+ 
+    //for sell divergence | logic 2
+    if high[x1] > high[last_h] and not down and rsi[x1] < rsi[last_h] 
+        Line1 := line.new(bar_index - last_h, high[last_h], bar_index - x1, high[x1], extend=extend.none, color=regBearColor1)
+
+    //for buy divergence | logic 2
+    if low[x1] < low[last_l] and down and rsi[x1] > rsi[last_l] 
+        Line := line.new(bar_index - last_l, low[last_l], bar_index - x1, low[x1], extend=extend.none, color=regBullColor1)
+        
+// if show_hidden
+//     //for hidden sell divergence
+//     if high[x1] < high[last_h] and rsi[x1] > rsi[last_h] and not down 
+//         Line2 := line.new(bar_index - last_h, high[last_h], bar_index - x1, high[x1], extend=extend.none, color=color.maroon)
+
+
+//     //for hidden buy divergence
+//     if low[x1] > low[last_l] and rsi[x1] < rsi[last_l] and down 
+//         Line3 := line.new(bar_index - last_l, low[last_l], bar_index - x1, low[x1], extend=extend.none, color=color.olive)
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// FOR DEGREE 2
+
+var last_h1 = 1, last_h1 := last_h1 + 1
+var last_l1 = 1, last_l1 := last_l1 + 1
+var lw1 = 1, var hg1 = 1
+lw1 := lw1 + 1, hg1 := hg1 + 1
+p_lw1 = -ta.lowestbars(Depth), p_hg1 = -ta.highestbars(Depth)
+lowing1 = lw1 == p_lw1 or low - low[p_lw1] > Deviation1*syminfo.mintick
+highing1 = hg1 == p_hg1 or high[p_hg1] - high > Deviation1*syminfo.mintick
+lh1 = ta.barssince(not highing1[1]), ll1 = ta.barssince(not lowing1[1])
+down1 = ta.barssince(not (lh1 > ll1)) >= Backstep1, lower1 = low[lw1] > low[p_lw1], higher1 = high[hg1] < high[p_hg1]
+if lw1 != p_lw1 and (not down1[1] or lower1)
+    lw1 := p_lw1 < hg1 ? p_lw1 : 0
+if hg1 != p_hg1 and (down1[1] or higher1)
+    hg1 := p_hg1 < lw1 ? p_hg1 : 0
+
+line zz1 = na
+label point1 = na
+x11 = down1 ? lw1 : hg1
+y11 = down1 ? low[lw1] : high[hg1]
+
+if down1 == down1[1]
+    if repaint
+        label.delete(point1[1])
+        line.delete(zz1[1])
+    down1
+if down1 != down1[1]
+    if down1
+        last_h1 := hg1
+    else
+        last_l1 := lw1
+    if not repaint
+        nx1 = down1?last_h1:last_l1
+        if Show_zz1 == true
+            zz1 := line.new(bar_index-nx1, down1 ? high[nx1] : low[nx1], bar_index-(down1?last_l1:last_h1), down1 ? low[last_l1] : high[last_h1], width=line_thick, color=down1?upcolor:dncolor)
+            point1 := label.new(bar_index-nx1, down1 ? high[nx1] : low[nx1], down1 ? (high[nx1] > high[last_h1[1]]?"HH":"LH") : (low[nx1] < low[last_l1[1]] ? "LL" : "HL"), style=down1?label.style_label_down:label.style_label_up, size=size.tiny, color=down1?dncolor:upcolor, textcolor=color.new(text_color, 0), tooltip = down1 ? (high[nx1] > high[last_h1[1]]?"Higher High":"Lower High") : (low[nx1] < low[last_l1[1]] ? "Lower Low" : "Higher Low"))
+        
+    down1
+    
+if repaint
+    if Show_zz1 == true
+        zz1 := line.new(bar_index-(down1?last_h1:last_l1), down1 ? high[last_h1] : low[last_l1], bar_index-x11, y11, width=line_thick, color=down1?dncolor:upcolor)
+        point1 := label.new(bar_index-x11, y11, down1 ? (low[x11] < low[last_l1] ? "LL" : "HL") : (high[x11] > high[last_h1]?"HH":"LH"), style=down1?label.style_label_up:label.style_label_down, size=size.tiny, color=down1?upcolor:dncolor, textcolor=color.new(text_color, 0), tooltip = down1 ? (low[x11] < low[last_l1] ? "Lower Low" : "Higher Low") : (high[x11] > high[last_h1]?"Higher High":"Lower High"))
+// ]
+
+
+
+
+
+//sell divergence
+var int rsi_current_l_shift1 = 0
+rsi_current_l_shift1 := down1 ? x11:rsi_current_l_shift1[1] + 1 //number of bars back the last low is
+
+var int rsi_current_h_1 = 0
+rsi_current_h_1 := not down1 ? x11: rsi_current_h_1[1] + 1
+
+val11 = ta.highest(rsi, rsi_current_h_1 + 1)
+val111 = na(rsi_current_l_shift1) == false ? ta.highest(rsi, rsi_current_l_shift1 + 1): 0.0
+
+var float retain_prev_highest1 = 0.0 //for keeping and storing previous highest value
+var float prev_highest1 = 0.0 //for getting previous highest value
+var float curr_highest1 = 0.0 //for getting current highest value
+
+prev_highest1 := rsi_current_h_1 >= 1 ? val11 : prev_highest1[1] //to get rsi highest value in previous range
+curr_highest1 := rsi_current_l_shift >= 1 ? val111 : curr_highest1[1] //to get rsi highest value in current range
+    
+if down1
+    prev_highest1 := prev_highest1[rsi_current_l_shift1] //get the highest value exactly when the low formed because a new higher rsi value could have formed on that low, so to get the most recent high, this code is there
+    retain_prev_highest1 := prev_highest1 //to get highest value in prev range only when the low comes so that the value won't change and it will be the same
+
+
+//buy divergence
+var int rsi_current_h_shift1 = 0
+rsi_current_h_shift1 := not down1 ? x11:rsi_current_h_shift1[1] + 1 //number of bars back the last high is
+
+var int rsi_current_l_1 = 0
+rsi_current_l_1 := down1 ? x11: rsi_current_l_1[1] + 1
+
+val21 = ta.lowest(rsi, nz(rsi_current_l_1) + 1 ) //to find lowest low in previous range
+val31 = ta.lowest(rsi, rsi_current_h_shift1 + 1) //to find lowest low in current range
+
+var float retain_prev_lowest1 = 0.0 //for keeping and storing previous lowest value
+var float prev_lowest1 = 0.0 //for getting previous lowest value
+var float curr_lowest1 = 0.0 //for getting current lowest value
+
+prev_lowest1 := rsi_current_l_1 >= 1 ? val21 : prev_lowest1[1] //to get rsi lowest value in previous range
+curr_lowest1 := rsi_current_h_shift1 >= 1 ? val31 : curr_lowest1[1] //to get rsi lowest value in current range
+    
+if not down1
+    prev_lowest1 := prev_lowest1[rsi_current_h_shift1] //get the lowest value exactly when the high formed because a new lower rsi value could have formed on that high, so to get the most recent low, this code is there
+    retain_prev_lowest1 := prev_lowest1 //to get lowest value in prev range only when the high comes so that the value won't change and it will be the same
+
+
+
+
+
+
+//to compare rsi values and plot regular or hidden divergences
+if show_normal1
+    //for sell divergence | logic 1
+    if high[x11] > high[last_h1] and not down1 and retain_prev_highest1 > curr_highest1
+        Line2 := line.new(bar_index - last_h1, high[last_h1], bar_index - x11, high[x11], extend=extend.none, color=regBearColor2)
+
+    //for buy divergence | logic 1
+    if low[x11] < low[last_l1] and down1 and retain_prev_lowest1 < curr_lowest1 
+        Line3 := line.new(bar_index - last_l1, low[last_l1], bar_index - x11, low[x11], extend=extend.none, color=regBullColor2)
+ 
+    //for sell divergence | logic 2
+    if high[x11] > high[last_h1] and not down1 and rsi[x11] < rsi[last_h1] 
+        Line2 := line.new(bar_index - last_h1, high[last_h1], bar_index - x11, high[x11], extend=extend.none, color=regBearColor2)
+
+    //for buy divergence | logic 2
+    if low[x11] < low[last_l1] and down1 and rsi[x11] > rsi[last_l1] 
+        Line3 := line.new(bar_index - last_l1, low[last_l1], bar_index - x11, low[x11], extend=extend.none, color=regBullColor2)
+        
