@@ -1,0 +1,394 @@
+
+//@version=5
+strategy("div cross stc", overlay=true, margin_long=100, margin_short=100, process_orders_on_close=true, max_bars_back=5000)
+
+//for zigzag settings for divergence 1
+ema_period_10 = input.int(10, "Fast Period ema", group="trade settings ")
+ema_period_20 = input.int(20, "Fast Period ema", group="trade settings ")
+divergence_type = input.string("Regular divergence", title="Type of divergence", options=["Regular divergence", "Hidden divergence"], group="trade settings ")
+close_cond = input.string("Divergence", title="Type of closing condition ", options=["Divergence", "STC", "Divergence & STC"], group="trade settings ")
+
+
+Depth       = input.int(12, "Depth for zigzag ", minval=1, step=1, group="zigzag settings")
+Deviation   = input.int(5, "Deviation for zigzag ", minval=1, step=1, group="zigzag settings")
+Backstep    = input.int(3, "Backstep for zigzag ", minval=2, step=1, group="zigzag settings")
+rsiLengthInput = input.int(14, minval=1, title="RSI Length", group="rsi settings")
+rsiSourceInput = input.source(close, "Source", group="rsi settings")
+
+show_normal = input.bool(true, "Show Regular Divergence?", group="visual settings")
+show_hidden = input.bool(false, "Show Hidden Divergence?", group="visual settings")
+Show_zz     = input.bool(false, "Show Zigzag?", group="visual settings")
+repaint     = input(true, "Repaint", group="visual settings")
+line_thick  = input.int(2, "Line Thickness for zigzag ", minval=1, maxval=4, group="visual settings")
+color_reg_buy     = input(color.new(color.lime, 0), "Regular Bull Divergence Color", group="visual settings")
+color_reg_sell     = input(color.new(color.red, 0), "Regular Bear Divergence Color", group="visual settings")
+color_hid_buy     = input(color.new(color.blue, 0), "Hidden Bull Divergence Color", group="visual settings")
+color_hid_sell     = input(color.new(color.yellow, 0), "Hidden Bear Divergence Color", group="visual settings")
+upcolor     = color.new(color.lime, 0)
+dncolor     = color.new(color.red, 0)
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+var int line_high2 = 0 //regular div logic 1 2
+var int line_low = 0 
+
+var int line_high3 = 0//hidden div logic 1
+var int line_low1 = 0 
+
+
+Line = line(na)
+Line1 = line(na)
+Line2 = line(na)
+Line3 = line(na)
+
+// Bake
+// [
+var last_h = 1, last_h := last_h + 1
+var last_l = 1, last_l := last_l + 1
+var lw = 1, var hg = 1
+lw := lw + 1, hg := hg + 1
+p_lw = -ta.lowestbars(Depth), p_hg = -ta.highestbars(Depth)
+lowing = lw == p_lw or low - low[p_lw] > Deviation*syminfo.mintick
+highing = hg == p_hg or high[p_hg] - high > Deviation*syminfo.mintick
+lh = ta.barssince(not highing[1]), ll = ta.barssince(not lowing[1])
+down = ta.barssince(not (lh > ll)) >= Backstep, lower = low[lw] > low[p_lw], higher = high[hg] < high[p_hg]
+if lw != p_lw and (not down[1] or lower)
+    lw := p_lw < hg ? p_lw : 0
+if hg != p_hg and (down[1] or higher)
+    hg := p_hg < lw ? p_hg : 0
+
+line zz = na
+label point = na
+x1 = down ? lw : hg
+y1 = down ? low[lw] : high[hg]
+
+if down == down[1]
+    if repaint
+        label.delete(point[1])
+        line.delete(zz[1])
+    down
+if down != down[1]
+    if down
+        last_h := hg
+    else
+        last_l := lw
+    if not repaint
+        nx = down?last_h:last_l
+        if Show_zz
+            zz := line.new(bar_index-nx, down ? high[nx] : low[nx], bar_index-(down?last_l:last_h), down ? low[last_l] : high[last_h], width=line_thick, color=down?upcolor:dncolor)
+            point := label.new(bar_index-nx, down ? high[nx] : low[nx], down ? (high[nx] > high[last_h[1]]?"HH":"LH") : (low[nx] < low[last_l[1]] ? "LL" : "HL"), style=down?label.style_label_down:label.style_label_up, size=size.tiny, color=down?dncolor:upcolor, textcolor=color.black, tooltip = down ? (high[nx] > high[last_h[1]]?"Higher High":"Lower High") : (low[nx] < low[last_l[1]] ? "Lower Low" : "Higher Low"))
+    down
+if repaint and Show_zz
+    zz := line.new(bar_index-(down?last_h:last_l), down ? high[last_h] : low[last_l], bar_index-x1, y1, width=line_thick, color=down?dncolor:upcolor)
+    point := label.new(bar_index-x1, y1, down ? (low[x1] < low[last_l] ? "LL" : "HL") : (high[x1] > high[last_h]?"HH":"LH"), style=down?label.style_label_up:label.style_label_down, size=size.tiny, color=down?upcolor:dncolor, textcolor=color.black, tooltip = down ? (low[x1] < low[last_l] ? "Lower Low" : "Higher Low") : (high[x1] > high[last_h]?"Higher High":"Lower High"))
+// ]
+
+up = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+down3 = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi = down3 == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down3))
+
+
+//SELL DIVERGENCE
+var int rsi_current_l_shift = 0
+rsi_current_l_shift := down ? x1:rsi_current_l_shift[1] + 1 //number of bars back the last low is
+
+var int rsi_current_h_ = 0
+rsi_current_h_ := not down ? x1: rsi_current_h_[1] + 1
+
+val = ta.highest(rsi, rsi_current_h_ + 1)
+val1 = na(rsi_current_l_shift) == false ? ta.highest(rsi, rsi_current_l_shift + 1): 0.0
+
+var float retain_prev_highest = 0.0 //for keeping and storing previous highest value
+var float prev_highest = 0.0 //for getting previous highest value
+var float curr_highest = 0.0 //for getting current highest value
+
+prev_highest := rsi_current_h_ >= 1 ? val : prev_highest[1] //to get rsi highest value in previous range
+curr_highest := rsi_current_l_shift >= 1 ? val1 : curr_highest[1] //to get rsi highest value in current range
+    
+if down
+    prev_highest := prev_highest[rsi_current_l_shift] //get the highest value exactly when the low formed because a new higher rsi value could have formed on that low, so to get the most recent high, this code is there
+    retain_prev_highest := prev_highest //to get highest value in prev range only when the low comes so that the value won't change and it will be the same
+
+
+//BUY DIVERGENCE
+var int rsi_current_h_shift = 0
+rsi_current_h_shift := not down ? x1:rsi_current_h_shift[1] + 1 //number of bars back the last high is
+
+var int rsi_current_l_ = 0
+rsi_current_l_ := down ? x1: rsi_current_l_[1] + 1
+
+val2 = ta.lowest(rsi, nz(rsi_current_l_) + 1 ) //to find lowest low in previous range
+val3 = ta.lowest(rsi, rsi_current_h_shift + 1) //to find lowest low in current range
+
+var float retain_prev_lowest = 0.0 //for keeping and storing previous lowest value
+var float prev_lowest = 0.0 //for getting previous lowest value
+var float curr_lowest = 0.0 //for getting current lowest value
+
+prev_lowest := rsi_current_l_ >= 1 ? val2 : prev_lowest[1] //to get rsi lowest value in previous range
+curr_lowest := rsi_current_h_shift >= 1 ? val3 : curr_lowest[1] //to get rsi lowest value in current range
+    
+if not down
+    prev_lowest := prev_lowest[rsi_current_h_shift] //get the lowest value exactly when the high formed because a new lower rsi value could have formed on that high, so to get the most recent low, this code is there
+    retain_prev_lowest := prev_lowest //to get lowest value in prev range only when the high comes so that the value won't change and it will be the same
+
+
+//for sell divergence | logic 1
+sell_div = high[x1] > high[last_h] and not down and retain_prev_highest > curr_highest and not (rsi[x1] < rsi[last_h])
+if (line_high2 != bar_index - x1 and sell_div)
+    line_high2 := bar_index - x1
+    if show_normal
+        Line1 := line.new(bar_index - last_h, high[last_h], bar_index - x1, high[x1], extend=extend.none, color=color_reg_sell)
+
+//for buy divergence | logic 1
+buy_div = low[x1] < low[last_l] and down and retain_prev_lowest < curr_lowest and not (rsi[x1] > rsi[last_l])
+if (line_low != bar_index - x1 and buy_div)
+    line_low := bar_index - x1
+    if show_normal
+        Line := line.new(bar_index - last_l, low[last_l], bar_index - x1, low[x1], extend=extend.none, color=color_reg_buy)
+ 
+
+//for sell divergence | logic 1 and 2
+sell_div := high[x1] > high[last_h] and not down and retain_prev_highest > curr_highest and (rsi[x1] < rsi[last_h])
+if (line_high2 != bar_index - x1 and sell_div) //to make sure it checks for divergence only one time and makes sure its a new divergence
+    line_high2 := bar_index - x1
+    if show_normal
+        Line1 := line.new(bar_index - last_h, high[last_h], bar_index - x1, high[x1], extend=extend.none, color=color_reg_sell)
+
+//for buy divergence | logic 1 and 2
+buy_div := low[x1] < low[last_l] and down and retain_prev_lowest < curr_lowest and (rsi[x1] > rsi[last_l])
+if (line_low != bar_index - x1 and buy_div)
+    line_low := bar_index - x1
+    if show_normal
+        Line := line.new(bar_index - last_l, low[last_l], bar_index - x1, low[x1], extend=extend.none, color=color_reg_buy)
+
+
+var int sl3_1 = 0
+var int sl2_1 = 0
+
+//for hidden sell divergence
+sell_div_hid = high[x1] < high[last_h] and rsi[x1] > rsi[last_h] and not down 
+if (line_high3 != bar_index - x1 and sell_div_hid) 
+    line_high3 := bar_index - x1
+    sl3_1 := bar_index - last_h
+    if show_hidden
+        Line2 := line.new(bar_index - last_h, high[last_h], bar_index - x1, high[x1], extend=extend.none, color=color_hid_buy)
+
+//for hidden buy divergence
+buy_div_hid = low[x1] > low[last_l] and rsi[x1] < rsi[last_l] and down 
+if (line_low1 != bar_index - x1 and buy_div_hid) 
+    line_low1 := bar_index - x1
+    sl2_1 := bar_index - last_l
+    if show_hidden
+        Line3 := line.new(bar_index - last_l, low[last_l], bar_index - x1, low[x1], extend=extend.none, color=color_hid_sell)
+
+///////////////////////////////////////////////////////////////////////
+
+
+float mAAAAA = 0.0
+EEEEEE = input(12, 'Length', group = "STC indicator settings")
+BBBB = input(26, 'FastLength', group = "STC indicator settings")
+BBBBB = input(50, 'SlowLength', group = "STC indicator settings")
+
+AAAA(BBB, BBBB, BBBBB) =>
+    fastMA = ta.ema(BBB, BBBB)
+    slowMA = ta.ema(BBB, BBBBB)
+    AAAA = fastMA - slowMA
+    AAAA
+
+AAAAA(EEEEEE, BBBB, BBBBB) =>
+    AAA = input(0.5)
+    var CCCCC = 0.0
+    var DDD = 0.0
+    var DDDDDD = 0.0
+    var EEEEE = 0.0
+    BBBBBB = AAAA(close, BBBB, BBBBB)
+    CCC = ta.lowest(BBBBBB, EEEEEE)
+    CCCC = ta.highest(BBBBBB, EEEEEE) - CCC
+    CCCCC := CCCC > 0 ? (BBBBBB - CCC) / CCCC * 100 : nz(CCCCC[1])
+    DDD := na(DDD[1]) ? CCCCC : DDD[1] + AAA * (CCCCC - DDD[1])
+    DDDD = ta.lowest(DDD, EEEEEE)
+    DDDDD = ta.highest(DDD, EEEEEE) - DDDD
+    DDDDDD := DDDDD > 0 ? (DDD - DDDD) / DDDDD * 100 : nz(DDDDDD[1])
+    EEEEE := na(EEEEE[1]) ? DDDDDD : EEEEE[1] + AAA * (DDDDDD - EEEEE[1])
+    EEEEE
+
+mAAAAA := AAAAA(EEEEEE, BBBB, BBBBB)
+mColor = mAAAAA > mAAAAA[1] ? color.new(color.green, 20) : color.new(color.red, 20) 
+ 
+ 
+ 
+//------------------------------------------------
+var stc_sell_record = 0
+var cu_sell_record = 0
+var dv_sell_record = 0
+
+red_line = mAAAAA < mAAAAA[1]
+
+stc_sell = ta.valuewhen(red_line, bar_index, 0)
+cu_sell = ta.valuewhen(ta.crossover(ta.ema(close, ema_period_20), ta.ema(close, ema_period_10)), bar_index, 0)
+var dv_sell = 0
+if sell_div and line_high2[1] != line_high2 
+    dv_sell := bar_index - x1
+
+highest = ta.highest(high, (bar_index - dv_sell) == 0 ? 1 : (bar_index - dv_sell) + 1)
+//------------------------------------------------
+ 
+ 
+/////////////////////////////////////////////////////////////////////////////////// REGULAR BUY LOGIC 1 & 2
+
+var stc_buy_record = 0
+var cu_buy_record = 0
+var dv_buy_record = 0
+
+green_line = mAAAAA > mAAAAA[1]
+
+stc_buy = ta.valuewhen(green_line, bar_index, 0)
+cu_buy = ta.valuewhen(ta.crossover(ta.ema(close, ema_period_10), ta.ema(close, ema_period_20)), bar_index, 0)
+var dv_buy = 0
+if buy_div and line_low[1] != line_low 
+    dv_buy := bar_index - x1
+
+lowest = ta.lowest(low, (bar_index - dv_buy) == 0 ? 1 : (bar_index - dv_buy) + 1)
+
+conds_31 = dv_buy <= stc_buy and ta.ema(close, ema_period_10)[bar_index - stc_buy] > ta.ema(close, ema_period_20)[bar_index - stc_buy] 
+
+if conds_31 and not (lowest < low[(bar_index - dv_buy)]) and strategy.opentrades[0] == 0 and dv_buy_record != dv_buy and divergence_type == "Regular divergence"
+    strategy.entry(id="buy entry", direction=strategy.long)
+    dv_buy_record := dv_buy
+
+hi1 = ta.highest(high, (bar_index - dv_sell) == 0 ? 1 : (bar_index - dv_sell) + 1)
+var float sl = 0.0
+if strategy.opentrades[1] == 0 and strategy.opentrades[0] == 1
+    sl := low[bar_index - line_low]
+    
+if strategy.opentrades.size(0) > 0
+    strategy.exit("buy sl", from_entry="buy entry", stop=sl)
+    
+    if mAAAAA < mAAAAA[1] and close_cond == "STC"
+        strategy.close("buy entry", qty=strategy.opentrades.size(0), comment="stc close")
+
+    if sell_div and close_cond == "Divergence"
+        strategy.close("buy entry", qty=strategy.opentrades.size(0), comment="div close")
+
+    if dv_sell <= stc_sell and close_cond == "Divergence & STC" and dv_sell >= strategy.opentrades.entry_bar_index(0) and not (hi1 > high[(bar_index - dv_sell)])
+        strategy.close("buy entry", qty=strategy.opentrades.size(0), comment="div stc close")
+
+//////////////////////////////////////////////////////////////////////////////// REGULAR SELL LOGIC 1 & 2
+
+conds_3 = dv_sell <= stc_sell and ta.ema(close, ema_period_20)[bar_index - stc_sell] > ta.ema(close, ema_period_10)[bar_index - stc_sell] and divergence_type == "Regular divergence"
+
+if conds_3 and not (highest > high[(bar_index - dv_sell)]) and strategy.opentrades[0] == 0 and dv_sell_record != dv_sell
+    strategy.entry(id="sell entry", direction=strategy.short)
+    dv_sell_record := dv_sell
+
+lo1 = ta.lowest(low, (bar_index - dv_buy) == 0 ? 1 : (bar_index - dv_buy) + 1)
+var float sl1 = 0.0
+if strategy.opentrades[1] == 0 and strategy.opentrades[0] == 1
+    sl1 := high[bar_index - line_high2]
+    
+if strategy.opentrades.size(0) < 0
+    strategy.exit("sell sl", from_entry="sell entry", stop=sl1)
+    
+    if mAAAAA > mAAAAA[1] and close_cond == "STC"
+        strategy.close("sell entry", qty=strategy.opentrades.size(0), comment="stc close")
+
+    if buy_div and close_cond == "Divergence"
+        strategy.close("sell entry", qty=strategy.opentrades.size(0), comment="div close")
+
+    if dv_buy <= stc_buy and close_cond == "Divergence & STC" and dv_buy >= strategy.opentrades.entry_bar_index(0) and not (lo1 < low[(bar_index - dv_buy)])
+        strategy.close("sell entry", qty=strategy.opentrades.size(0), comment="div stc close")
+
+
+/////////////////////////////////////////////////////////////////////////////////////// HIDDEN BUY LOGIC 1
+
+
+var stc_buy_record_hid = 0
+var cu_buy_record_hid = 0
+var dv_buy_record_hid = 0
+
+green_line1 = mAAAAA > mAAAAA[1]
+
+stc_buy_hid = ta.valuewhen(green_line1, bar_index, 0)
+cu_buy_hid = ta.valuewhen(ta.crossover(ta.ema(close, ema_period_10), ta.ema(close, ema_period_20)), bar_index, 0)
+var dv_buy_hid = 0
+if buy_div_hid and line_low1[1] != line_low1 
+    dv_buy_hid := bar_index - x1
+
+lowest1 = ta.lowest(low, (bar_index - dv_buy_hid) == 0 ? 1 : (bar_index - dv_buy_hid) + 1)
+
+conds_32 = dv_buy_hid <= stc_buy_hid and ta.ema(close, ema_period_10)[bar_index - stc_buy_hid] > ta.ema(close, ema_period_20)[bar_index - stc_buy_hid] 
+
+if conds_32 and not (lowest1 < low[(bar_index - dv_buy_hid)]) and strategy.opentrades[0] == 0 and dv_buy_record_hid != dv_buy_hid and divergence_type == "Hidden divergence"
+    strategy.entry(id="buy trade", direction=strategy.long)
+    dv_buy_record_hid := dv_buy_hid
+    stc_buy_record := stc_buy_hid
+
+
+hi = ta.highest(high, (bar_index - dv_sell) == 0 ? 1 : (bar_index - dv_sell) + 1)
+var float sl2 = 0.0
+if strategy.opentrades[1] == 0 and strategy.opentrades[0] == 1
+    sl2 := low[bar_index - sl2_1]
+    
+if strategy.opentrades.size(0) > 0
+    strategy.exit("buy sl1", from_entry="buy trade", stop=sl2)
+    
+    if mAAAAA < mAAAAA[1] and close_cond == "STC"
+        strategy.close("buy trade", qty=strategy.opentrades.size(0), comment="stc close")
+
+    if sell_div and close_cond == "Divergence"
+        strategy.close("buy trade", qty=strategy.opentrades.size(0), comment="div close")
+
+    if dv_sell <= stc_sell and close_cond == "Divergence & STC" and dv_sell >= strategy.opentrades.entry_bar_index(0) and not (hi > high[(bar_index - dv_sell)])
+        strategy.close("buy trade", qty=strategy.opentrades.size(0), comment="div stc close")
+
+//////////////////////////////////////////////////////////////////////////////// HIDDEN SELL LOGIC 1
+
+var stc_sell_record_hid = 0
+var cu_sell_record_hid = 0
+var dv_sell_record_hid = 0
+
+red_line1 = mAAAAA < mAAAAA[1]
+
+stc_sell_hid = ta.valuewhen(red_line1, bar_index, 0)
+cu_sell_hid = ta.valuewhen(ta.crossover(ta.ema(close, ema_period_20), ta.ema(close, ema_period_10)), bar_index, 0)
+var dv_sell_hid = 0
+if sell_div_hid and line_high3[1] != line_high3 
+    dv_sell_hid := bar_index - x1
+
+highest1 = ta.highest(high, (bar_index - dv_sell_hid) == 0 ? 1 : (bar_index - dv_sell_hid) + 1)
+
+conds_33 = dv_sell_hid <= stc_sell_hid and ta.ema(close, ema_period_20)[bar_index - stc_sell_hid] > ta.ema(close, ema_period_10)[bar_index - stc_sell_hid] 
+
+if conds_33 and not (highest1 > high[(bar_index - dv_sell_hid)]) and strategy.opentrades[0] == 0 and dv_sell_record_hid != dv_sell_hid and divergence_type == "Hidden divergence"
+    strategy.entry(id="sell trade", direction=strategy.short)
+    dv_sell_record_hid := dv_sell_hid
+
+lo = ta.lowest(low, (bar_index - dv_buy) == 0 ? 1 : (bar_index - dv_buy) + 1)
+var float sl3 = 0.0
+if strategy.opentrades[1] == 0 and strategy.opentrades[0] == 1
+    sl3 := high[bar_index - sl3_1]
+
+    
+if strategy.opentrades.size(0) < 0
+    strategy.exit("sell sl1", from_entry="sell trade", stop=sl3)
+    
+    if mAAAAA > mAAAAA[1] and close_cond == "STC"
+        strategy.close("sell trade", qty=strategy.opentrades.size(0), comment="stc close")
+
+    if buy_div and close_cond == "Divergence"
+        strategy.close("sell trade", qty=strategy.opentrades.size(0), comment="div close")
+
+    if dv_buy <= stc_buy and close_cond == "Divergence & STC" and dv_buy >= strategy.opentrades.entry_bar_index(0) and not (lo < low[(bar_index - dv_buy)])
+        strategy.close("sell trade", qty=strategy.opentrades.size(0), comment="div stc close")
+
+
+
+
+
+plot(ta.ema(close, ema_period_20), color=color.yellow)
+plot(ta.ema(close, ema_period_10), color=color.purple)
+
+
+//version 1 is the last version where there is no hidden divergence added 
