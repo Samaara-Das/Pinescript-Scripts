@@ -1,0 +1,86 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © sammie123567858
+
+
+// 📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝
+// INDICATOR DESCRIPTION
+// kernel added to rsi
+
+
+//@version=5
+indicator("RSI with Kernel", overlay = false, format = format.price, max_bars_back = 5000, max_lines_count = 500, precision = 5)
+
+
+
+//importing Justin Dehortys awesome kernel library
+import jdehorty/KernelFunctions/2 as kernels
+
+
+//user Input for the fast Kernel line
+showKernel = input.bool(true, 'Show Kernel?', group="Kernel Settings")
+kernelColor = input.color(#ff3f3f, 'Kernel Color', group="Kernel Settings")
+string kernelFastType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Kernel Settings" )
+float kernelFastWeight = input.float(8, "Rel Weight", 0 , 50, step = 0.2, group = "Kernel Settings")
+int kernelFastLookback = input.int(8, "Lookback",2 , 500, group = "Kernel Settings")
+int kernelFastRegressionStart = input.int(25, "Regression Start",2 , 400, group = "Kernel Settings")
+bool kernelFastSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Kernel Settings")
+int kernelFastSmoothPeriod = input.int(4, "",2 , 200, inline = "Smooth", group = "Kernel Settings")
+
+
+// rsi indicator
+rsiLengthInput = input.int(14, minval=1, title="RSI Length", group="RSI Settings")
+rsiSourceInput = input.source(close, "Source", group="RSI Settings")
+showMA = input.bool(false, 'Show Rsi based MA?', group="RSI Settings")
+maTypeInput = input.string("SMA", title="MA Type", options=["SMA", "Bollinger Bands", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group="RSI Settings")
+maLengthInput = input.int(14, title="MA Length", group="RSI Settings")
+obLevel = input.float(70, "Overbought Level", group = "RSI Settings")
+osLevel = input.float(30, "Undersold Level", group = "RSI Settings")
+
+
+
+
+
+ 
+
+// rsi
+ma(source, length, type) =>
+    switch type
+        "SMA" => ta.sma(source, length)
+        "Bollinger Bands" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+//
+
+up = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+down = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+rsiMA = float(na)
+
+if showMA
+    rsiMA := ma(rsi, maLengthInput, maTypeInput)
+//
+
+// rsi and it's ma
+plot(rsi, "RSI", color=#7E57C2)
+plot(showMA ? rsiMA:na, color=color.yellow)
+
+// overbought & oversold levels
+hline(obLevel, "Overbought Level", #f6c5ff, hline.style_dotted)
+hline(osLevel, "Undersold Level", #f6c5ff, hline.style_dotted)
+
+
+
+
+//fast Kernel line
+float kernelFast = switch kernelFastType
+    "Rational Quadratic" => kernels.rationalQuadratic(rsi, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+    "Gaussian" => kernels.gaussian(rsi, kernelFastLookback, kernelFastRegressionStart)
+
+if kernelFastSmooth
+    kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
+//
+
+plot(showKernel ? kernelFast:na, "RSI based Kernel", kernelColor)
+
