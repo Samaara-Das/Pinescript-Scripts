@@ -15,9 +15,9 @@ Exit conditions -
 5. When the Kernel line changes its colour
 
 **Note about exits:**
-if tp & sl input is true but close condition is false, it will work for single trades (1 trade at a time)
-if close condition is true but sl & tp exit is false, it will work for single & multiple trades at a time (if you want multiple trades to be taken, change pyramiding to anything more than 0)
-if both are true, it will only work for single trades. the entries will be exited based on if the sl/tp or close condition gets triggered first
+1. If the TP & SL exit is checked but the close condition is unchecked, it will work for single trades (1 trade at a time).
+2. If the close condition is checked but the TP & SL exit is unchecked, it will work for single & multiple trades at a time (if you want multiple trades to be taken, change pyramiding to anything above 0)
+3. If both (TP & SL exit and the close condition) are checked, it will only work for single trades. The entries will be exited based on which exit gets triggered first.
 
 ## Its settings
 ![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/5906605b-3440-449f-9860-227ac460345d)
