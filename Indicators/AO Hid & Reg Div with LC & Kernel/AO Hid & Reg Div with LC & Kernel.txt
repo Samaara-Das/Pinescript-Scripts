@@ -1,0 +1,1502 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © sammie123567858
+
+//@version=5
+indicator("Ao Reg & Hid Div with LC & Kernel", 'AO DIV, LC, KERNEL', true, format = format.price, max_bars_back = 5000, max_lines_count = 500, precision = 5)
+
+import jdehorty/MLExtensions/2 as ml
+import jdehorty/KernelFunctions/2 as kernels
+
+
+// this has AO DIV (regular & hidden divergence), LC and Kernel Crossover V1
+
+
+//📌📌📌📌📌📌📌📌📌📌📌📌📌📌📌📌📌📌
+//IMPORTANT FOR REGULAR DIVERGENCE
+//make sure that the repaint input is false
+//otherwise it will draw bullish divergences in a zz up leg & bearish divergences in a zz down leg (which is wrong)
+
+
+//📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝
+//Indicator description FOR REGULAR DIVERGENCE
+//for bearish divergences:
+//it will start looking for divergences if there's a zigzag low as the latest zz swing. it will stop if there is a zigzag high
+
+//it will wait untill there is more than 1 ao range above 0. 
+//it will find the highest ao in a range. this highest ao makes that range the highest range upto the current bar
+//if it finds a new higher ao (in a new range or the same range), it will update the highest ao to the new higher ao
+
+//it will compare the highest range (which it has among all the ao ranges in the current zz leg) with the current ao range. 
+//the current ao range has to be less than the highest range
+
+//it will find the highest prices within both the ao ranges. it will check if the highest price (in the leftmost range) is less than the highest price (in the rightmost range)
+//if that is so, it will draw a trendline from the 1st highest price to the 2nd highest price
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+//for bullish divergences:
+//it will start looking for divergences if there's a zigzag high as the latest zz swing. it will stop if there is a zigzag low
+
+//it will wait untill there is more than 1 ao range below 0. 
+//it will find the lowest ao in a range. this lowest ao makes that range the lowest range upto the current bar
+//if it finds a new lower ao (in a new range or the same range), it will update the lowest ao to the new lower ao
+
+//it will compare the lowest range (which it has among all the ao ranges in the current zz leg) with the current ao range. 
+//the current ao range has to be greater than the lowest range
+
+//it will find the lowest prices within both the ao ranges. it will check if the lowest price (in the leftmost range) is greater than the lowest price (in the rightmost range)
+//if that is so, it will draw a trendline from the 1st lowest price to the 2nd lowest price
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+//the logic for the trendline has now been updated
+//it will start from the same place it did earlier but it will end at the highest high/lowest low 
+//it will look for the highest high/lowest low from the start of trend line to current bar
+
+
+
+
+
+
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+//📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝
+//Indicator description for HIDDEN DIVERGENCES: 
+
+//for bearish hidden divergences:
+//it will start looking for divergences if there's a zigzag high as the latest zz swing. it will stop if there is a zigzag low
+
+//it will wait untill there are atleast 2 ao ranges above 0. 
+//it will find the highest ao in a range. it will check if that highest ao is lesser than the previous highest ao found.
+//if it finds a new highest ao in the latest range which is lower than the previous lowest highest ao, it will update the lowest highest ao to this new ao value
+
+//it will compare the lowest highest ao (which it has among all the ao ranges in the current zz leg) with the current ao range. 
+//the current ao range's highest ao has to be greater than the lowest highest range
+
+//it will find the highest prices within both the ao ranges. it will check if the highest price (in the leftmost range) is more than the highest price (in the rightmost range)
+//if that is so, there will be a bearish hidden divergence
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+//for bullish divergences:
+//it will start looking for divergences if there's a zigzag low as the latest zz swing. it will stop if there is a zigzag high
+
+//it will wait untill there are atleast 2 ao ranges below 0. 
+//it will find the lowest ao in the latest range. it will check if that lowest ao is greater than the previous lowest ao found.
+//if it finds a new lowest ao in the latest range which is higher than the previous highest lowest ao, it will update the highest lowest ao to this new ao value
+
+//it will compare the highest lowest ao (which it has among all the ao ranges in the current zz leg) with the current ao range. 
+//the current ao range's lowest ao has to be lower than the highest lowest range
+
+//it will find the lowest prices within both the ao ranges. it will check if the lowest price (in the leftmost range) is less than the lowest price (in the rightmost range)
+//if that is so, there will be a bullish hidden divergence
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+//for hidden bullish divergence: it will keep looking for lOWER LOWS in ao and HIGHER LOWS in price
+//for hidden bearish divergence: it will keep looking for HIGHER HIGHS in ao and LOWER HIGHS in price
+
+
+
+
+//📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝
+//There are regular and hidden divergences which use Zigzag
+
+
+
+//📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝
+//LORENTZE CLASSIFICATION HAS ALSO BEEN ADDED by jdehorty
+//most of its inputs have been removed
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+//📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝
+//Kernel Crossover V1 has been added ALSO by XXX
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+type Settings
+    float source
+    int neighborsCount
+    int maxBarsBack
+    int featureCount
+    int colorCompression
+    bool showExits
+    bool useDynamicExits
+
+type Label
+    int long
+    int short
+    int neutral
+
+type FeatureArrays
+    array<float> f1
+    array<float> f2
+    array<float> f3
+    array<float> f4
+    array<float> f5
+
+type FeatureSeries
+    float f1
+    float f2
+    float f3
+    float f4
+    float f5
+
+type MLModel
+    int firstBarIndex
+    array<int> trainingLabels
+    int loopSize
+    float lastDistance
+    array<float> distancesArray
+    array<int> predictionsArray
+    int prediction
+
+type FilterSettings 
+    bool useVolatilityFilter
+    bool useRegimeFilter
+    bool useAdxFilter
+    float regimeThreshold
+    int adxThreshold
+
+type Filter
+    bool volatility
+    bool regime
+    bool adx 
+
+
+//ao indicator calculation
+ao = ta.sma(hl2,5) - ta.sma(hl2,34)
+diff = ao - ao[1]
+
+
+
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+var track = 0
+var bool swingHigh = false
+//zigzag inputs
+useReg = input.bool(true, "Show Regular Divergence?", group="Display")
+useHid = input.bool(true, "Show Hidden Divergence?", group="Display")
+useLC = input.bool(false, "Show LC?", group="Display")
+useKernel = input.bool(false, "Show Kernel Line?", group="Display")
+useKernelCrossover = input.bool(false, "Show Kernel Crossover Lines?", group="Display")
+
+
+Depth1       = input.int(144, "Depth1", minval=1, step=1, group="Zigzag Settings (for Divergence)")
+Deviation1   = input.int(75, "Deviation1", minval=1, step=1, group="Zigzag Settings (for Divergence)")
+Backstep1    = input.int(21, "Backstep1", minval=2, step=1, group="Zigzag Settings (for Divergence)")
+line_thick1  = input.int(2, "Line Thickness", minval=1, maxval=4, group="Zigzag Settings (for Divergence)")
+upcolor1     = input.color(color.new(color.lime, 0), "Color of up zigzag line", group="Zigzag Settings (for Divergence)")
+dncolor1     = input.color(color.new(color.red, 0), "Color of down zigzag line", group="Zigzag Settings (for Divergence)")
+text_color1  = input.color(color.white, "Text color for labels of zigzag", group="Zigzag Settings (for Divergence)")
+Show_zz1     = input.bool(false, "Show Zigzag?", group="Zigzag Settings (for Divergence)")
+repaint1     = false
+
+
+rbullishcolor  = input.color(color.new(color.lime, 0), "Color of REG bullish divergences", group="Divergence Colours")
+rbearishcolor  = input.color(color.new(color.red, 0), "Color of REG bearish divergences", group="Divergence Colours")
+
+hbullishcolor  = input.color(color.new(#2f9c21, 0), "Color of HID bullish divergences", group="Divergence Colours")
+hbearishcolor  = input.color(color.new(#861a1a, 0), "Color of HID bearish divergences", group="Divergence Colours")
+
+
+
+
+
+//zigzag indicator calculation
+var last_h1 = 1, last_h1 := last_h1 + 1
+var last_l1 = 1, last_l1 := last_l1 + 1
+var lw1 = 1, var hg1 = 1
+lw1 := lw1 + 1, hg1 := hg1 + 1
+p_lw1 = -ta.lowestbars(Depth1), p_hg1 = -ta.highestbars(Depth1)
+lowing1 = lw1 == p_lw1 or low - low[p_lw1] > Deviation1*syminfo.mintick
+highing1 = hg1 == p_hg1 or high[p_hg1] - high > Deviation1*syminfo.mintick
+lh1 = ta.barssince(not highing1[1]), ll1 = ta.barssince(not lowing1[1])
+down1 = ta.barssince(not (lh1 > ll1)) >= Backstep1, lower1 = low[lw1] > low[p_lw1], higher1 = high[hg1] < high[p_hg1]
+if lw1 != p_lw1 and (not down1[1] or lower1)
+    lw1 := p_lw1 < hg1 ? p_lw1 : 0
+if hg1 != p_hg1 and (down1[1] or higher1)
+    hg1 := p_hg1 < lw1 ? p_hg1 : 0
+
+line zz1 = na
+label point1 = na
+x11 = down1 ? lw1 : hg1
+y11 = down1 ? low[lw1] : high[hg1]
+
+if down1 == down1[1]
+    if repaint1
+        label.delete(point1[1])
+        line.delete(zz1[1])
+    down1
+if down1 != down1[1]
+    if down1
+        last_h1 := hg1
+    else
+        last_l1 := lw1
+    if not repaint1
+        nx = down1?last_h1:last_l1
+        track := bar_index-nx
+        swingHigh := down1 ? true: false
+        if Show_zz1 == true
+            zz1 := line.new(bar_index-nx, down1 ? high[nx] : low[nx], bar_index-(down1?last_l1:last_h1), down1 ? low[last_l1] : high[last_h1], width=line_thick1, color=down1?upcolor1:dncolor1)
+            point1 := label.new(bar_index-nx, down1 ? high[nx] : low[nx], down1 ? (high[nx] > high[last_h1[1]]?"HH":"LH") : (low[nx] < low[last_l1[1]] ? "LL" : "HL"), style=down1?label.style_label_down:label.style_label_up, size=size.tiny, color=down1?dncolor1:upcolor1, textcolor=color.new(text_color1, 0), tooltip = down1 ? (high[nx] > high[last_h1[1]]?"Higher High":"Lower High") : (low[nx] < low[last_l1[1]] ? "Lower Low" : "Higher Low"))
+
+    down1
+    
+if repaint1
+    track := bar_index-x11
+    swingHigh := down1 ? false: true
+    if Show_zz1 == true
+        zz1 := line.new(bar_index-(down1?last_h1:last_l1), down1 ? high[last_h1] : low[last_l1], bar_index-x11, y11, width=line_thick1, color=down1?dncolor1:upcolor1)
+        point1 := label.new(bar_index-x11, y11, down1 ? (low[x11] < low[last_l1] ? "LL" : "HL") : (high[x11] > high[last_h1]?"HH":"LH"), style=down1?label.style_label_up:label.style_label_down, size=size.tiny, color=down1?upcolor1:dncolor1, textcolor=color.new(text_color1, 0), tooltip = down1 ? (low[x11] < low[last_l1] ? "Lower Low" : "Higher Low") : (high[x11] > high[last_h1]?"Higher High":"Lower High"))
+        
+// 
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//ao logic
+
+bool lookingForBull = false
+bool lookingForBear = false
+
+float curr_lowest = 0
+int bullStart = 0
+float curr_highest = 0
+int bearStart = 0
+
+var int bearishTrendlineStart = 0
+var int bullishTrendlineStart = 0
+
+var latestBullLine = line(na)
+var bullLineCounter = -1
+var latestBearLine = line(na)
+var bearLineCounter = -1
+
+//for regular div entry condition
+var float rBullLow2 = 0
+var float rBearHigh2 = 0
+
+var int rBullLow2Bar = 0
+var int rBearHigh2Bar = 0
+
+//for divergence entry conditions
+var int buyBarIndex = 0
+var int sellBarIndex = 0
+
+
+
+//to find where the ao range starts (the bar at which the ao first started being negative)
+findBuyStartPoint() =>
+    int shift = 0
+
+    int i = 0
+    while ao[i] < 0 
+        shift := i
+        i := i + 1
+    //
+
+    shift 
+//
+
+//to find the lowest ao in the current range (starting from its shift 0 upto the start of the range)
+findLowestAo(int start) =>
+    float lowest = 0
+    int end = bar_index - start
+
+    for i = 0 to end
+        if ao[i] < lowest
+            lowest := ao[i]
+    //
+
+    lowest
+//
+
+//to find lowest low (in price) in a given ao range 
+findLowestPrice(int start, int end) =>
+    int endShift = bar_index - end
+    int startShift = bar_index - start
+    float lowest = low[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if low[i] < lowest
+            lowest := low[i]
+            barTime := i
+        //
+    //
+
+    [lowest, barTime]
+// 
+
+//to find lowest low (in price) in a given price range for updating the trendline
+findLowest(int start, int end) =>
+    int endShift = end
+    int startShift = start
+    float lowest = low[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if low[i] < lowest
+            lowest := low[i]
+            barTime := i
+        //
+    //
+
+    [lowest, barTime]
+// 
+
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+//to find where the ao range starts (the bar at which the ao first started being negative)
+findSellStartPoint() =>
+    int shift = 0
+
+    int i = 0
+    while ao[i] > 0 
+        shift := i
+        i := i + 1
+    //
+
+    shift 
+//
+
+//to find the lowest ao in the current range (starting from its shift 0 upto the start of the range)
+findHighestAo(int start) =>
+    float highest = 0
+    int end = bar_index - start
+
+    for i = 0 to end
+        if ao[i] > highest
+            highest := ao[i]
+    //
+
+    highest
+//
+
+//to find lowest low (in price) in a given range 
+findHighestPrice(int start, int end) =>
+    int endShift = bar_index - end
+    int startShift = bar_index - start
+    float highest = high[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if high[i] > highest
+            highest := high[i]
+            barTime := i
+        //
+    //
+
+    [highest, barTime]
+// 
+
+//to find lowest low (in price) in a given price range for updating the trendline
+findHighest(int start, int end) =>
+    int endShift = end
+    int startShift = start
+    float highest = high[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if high[i] > highest
+            highest := high[i]
+            barTime := i
+        //
+    //
+
+    [highest, barTime]
+// 
+
+
+
+
+
+
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+//for bullish divergences
+
+
+
+var minRangesLowest = array.new_float(0)
+var minRangesEnd = array.new_int(0)
+var minRangesStart = array.new_int(0)
+
+var int lowestIndex = -1
+var float lowestVal = 0
+var int lowestStart = -1
+
+
+
+
+if useReg
+
+    bullStart := bar_index - findBuyStartPoint()
+    curr_lowest := findLowestAo(bullStart)
+
+    //start afresh when there is a a zigzag down
+    if not swingHigh
+        bullStart := 0
+        curr_lowest := 0
+        array.clear(minRangesLowest)
+        array.clear(minRangesEnd)
+        array.clear(minRangesStart)
+        lowestIndex := -1
+        lowestVal := 0
+        lowestStart := -1
+    //
+
+
+    if swingHigh
+        if ao < 0
+            lookingForBull := true
+    //
+                
+
+
+    //storing the lowest value, start shift & end shift of the current range & updating it as values change
+    if lookingForBull == true  
+        int lastIndex = array.size(minRangesStart) - 1
+
+        if array.size(minRangesStart) >= 1 
+            if array.get(minRangesStart, lastIndex) != bullStart
+                array.push(minRangesStart, 0)
+                array.push(minRangesEnd, 0)
+                array.push(minRangesLowest, 0)
+            //
+        //
+
+        if array.size(minRangesStart) == 0
+            array.push(minRangesStart, 0)
+            array.push(minRangesEnd, 0)
+            array.push(minRangesLowest, 0)
+        //
+
+        lastIndex := array.size(minRangesStart)-1
+        array.set(minRangesLowest, lastIndex, curr_lowest) //set the lowest value for the current range
+        array.set(minRangesStart, lastIndex, bullStart) //set the start shift for the current range
+        array.set(minRangesEnd, lastIndex, bar_index) //set the end shift for the current range
+    //
+
+
+    //checking if there is more than 1 range to compare with the lowest ao val up untill the current bar
+    if array.size(minRangesStart) >= 1 
+        int lastIndex = array.size(minRangesStart) - 1
+
+        if array.get(minRangesLowest, lastIndex) < lowestVal
+            lowestVal := array.get(minRangesLowest, lastIndex)
+            lowestIndex := lastIndex
+        //
+    //
+
+
+    //checking if there are more than 2 ranges to compare/ delete lines
+    if array.size(minRangesStart) >= 2 
+
+        int lastIndex = array.size(minRangesStart) - 1
+
+        //get the start and end shifts of the 2 ranges
+        int start2 = array.get(minRangesStart, lastIndex)
+        int end2 = array.get(minRangesEnd, lastIndex)
+
+        int start1 = array.get(minRangesStart, lowestIndex)
+        int end1 = array.get(minRangesEnd, lowestIndex)
+
+        //if lowest in range 2 is greater than lowest in range 1
+        if array.get(minRangesLowest, lastIndex) > lowestVal
+            [lowest1, index1] = findLowestPrice(start1, end1)
+            [lowest2, index2] = findLowestPrice(start2, end2)
+
+            //check if lowest price in range 1 > lowest price in range 2
+            if lowest1 > lowest2 
+
+                if lowestStart != start1
+                    latestBullLine := line.new(time[index2], lowest2, time[index1], lowest1, xloc = xloc.bar_time, extend = extend.none, color = rbullishcolor, style = line.style_solid, width = 1)
+                    bullLineCounter := bullLineCounter + 1
+                    lowestStart := start1
+                //
+
+                if lowestStart == start1
+
+                    //to find the lowest low from the start of trendline to current bar
+                    [currLowest, currLowestIndex] = findLowest(index1, 0)
+                    
+                    line.set_x1(latestBullLine, time[currLowestIndex])
+                    line.set_y1(latestBullLine, currLowest)
+
+                    //storing these values for entry condition
+                    rBullLow2Bar := bar_index - currLowestIndex
+                    rBullLow2 := currLowest
+                //
+
+            //
+
+        //
+
+    //
+
+
+
+
+
+
+    //for bearish divergences
+
+    bearStart := bar_index - findSellStartPoint()
+    curr_highest := findHighestAo(bearStart)
+
+    var maxRangesHighest = array.new_float(0)
+    var maxRangesEnd = array.new_int(0)
+    var maxRangesStart = array.new_int(0)
+
+    var int highestIndex = -1
+    var float highestVal = 0
+    var int highestStart = -1
+
+
+    //start afresh when there is a a zigzag up
+    if swingHigh
+        bearStart := 0
+        curr_highest := 0
+        array.clear(maxRangesHighest)
+        array.clear(maxRangesEnd)
+        array.clear(maxRangesStart)
+        highestIndex := -1
+        highestVal := 0
+        highestStart := -1
+    //
+
+
+    if not swingHigh
+        if ao > 0 
+            lookingForBear := true
+    //
+                
+
+
+    //storing the highest value, start shift & end shift of the current range & updating it as values change
+    if lookingForBear == true 
+        int lastIndex = array.size(maxRangesStart) - 1
+
+        if array.size(maxRangesStart) >= 1 
+            if array.get(maxRangesStart, lastIndex) != bearStart
+                array.push(maxRangesStart, 0)
+                array.push(maxRangesEnd, 0)
+                array.push(maxRangesHighest, 0)
+            //
+        //
+
+        if array.size(maxRangesStart) == 0
+            array.push(maxRangesStart, 0)
+            array.push(maxRangesEnd, 0)
+            array.push(maxRangesHighest, 0)
+        //
+
+        lastIndex := array.size(maxRangesStart)-1
+        array.set(maxRangesHighest, lastIndex, curr_highest) //set the highest value for the current range
+        array.set(maxRangesStart, lastIndex, bearStart) //set the start shift for the current range
+        array.set(maxRangesEnd, lastIndex, bar_index) //set the end shift for the current range
+    //
+
+
+    //checking if there is more than 1 range to compare with the highest ao val up untill the current bar
+    if array.size(maxRangesStart) >= 1 
+        int lastIndex = array.size(maxRangesStart) - 1
+
+        if array.get(maxRangesHighest, lastIndex) > highestVal
+            highestVal := array.get(maxRangesHighest, lastIndex)
+            highestIndex := lastIndex
+        //
+    //
+
+
+    //checking if there are more than 2 ranges to compare/ delete lines
+    if array.size(maxRangesStart) >= 2  
+
+        int lastIndex = array.size(maxRangesStart) - 1
+        
+        //get the start and end shifts of the 2 ranges
+        int start2 = array.get(maxRangesStart, lastIndex)
+        int end2 = array.get(maxRangesEnd, lastIndex)
+
+        int start1 = array.get(maxRangesStart, highestIndex)
+        int end1 = array.get(maxRangesEnd, highestIndex)
+
+        //if highest in range 2 is lower than highest in range 1
+        if array.get(maxRangesHighest, lastIndex) < highestVal
+            [highest1, index1] = findHighestPrice(start1, end1)
+            [highest2, index2] = findHighestPrice(start2, end2)
+
+            //check if highest price in range 1 < highest price in range 2
+            if highest1 < highest2 
+
+                if highestStart != start1
+                    latestBearLine := line.new(time[index2], highest2, time[index1], highest1, xloc = xloc.bar_time, extend = extend.none, color = rbearishcolor, style = line.style_solid, width = 1)
+                    bearLineCounter := bearLineCounter + 1
+                    highestStart := start1
+                //
+
+                if highestStart == start1
+                    
+                    //to find the highest high from the start of trendline to current bar
+                    [currHighest, currHighestIndex] = findHighest(index1, 0)
+
+                    line.set_x1(latestBearLine, time[currHighestIndex])
+                    line.set_y1(latestBearLine, currHighest)
+
+                    //storing these values for entry condition
+                    rBearHigh2Bar := bar_index - currHighestIndex
+                    rBearHigh2 := currHighest
+                //
+
+            //
+
+        //
+
+    //
+//
+
+
+
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//FOR BULLISH HIDDDEN DIVERGENCE
+
+
+
+//VARIABLES FOR HIDDEN DIV
+
+bool lookingForBull2 = false
+
+float curr_lowest2 = 0
+int bullStart2 = 0
+
+var minRangesLowest2 = array.new_float(0)
+var minRangesHighest2 = array.new_float(0)
+var minRangesEnd2 = array.new_int(0)
+var minRangesStart2 = array.new_int(0)
+
+var int lowestIndex2 = -1
+var int highestLowestIndex2 = -1
+
+var float lowestVal2 = 0
+var float highestLowestVal2 = -100000
+
+var int highestStartHid2 = -1
+
+
+//for hidden div entry condition
+var float hBullLow1 = 0
+var float hBearHigh1 = 0
+
+var float hBullLow2 = 0
+var float hBearHigh2 = 0
+
+var int hBearHigh2Bar = 0
+var int hBullLow2Bar = 0
+
+
+//LOGIC FOR HIDDEN DIV
+
+if useHid
+
+    bullStart2 := bar_index - findBuyStartPoint()
+
+    float lowest = 0
+    int end = bar_index - bullStart2
+
+    for i = 0 to end
+        if ao[i] < lowest
+            lowest := ao[i]
+    //
+    curr_lowest2 := lowest
+
+    //start afresh when there is a a zigzag down
+    if swingHigh
+        bullStart2 := 0
+        curr_lowest2 := 0
+        array.clear(minRangesLowest2)
+        array.clear(minRangesEnd2)
+        array.clear(minRangesStart2)
+        lowestIndex2 := -1
+        highestLowestIndex2 := -1
+        lowestVal2 := 0
+        highestLowestVal2 := -100000
+        highestStartHid2 := -1
+    //
+
+
+    if not swingHigh
+        if ao < 0
+            lookingForBull2 := true
+    //
+
+
+    //storing the lowest value, start shift & end shift of the current range & updating it as values change
+    if lookingForBull2 == true  
+        int lastIndex = array.size(minRangesStart2) - 1
+
+        if array.size(minRangesStart2) >= 1  //if there are elements in the arrays already, 
+            if array.get(minRangesStart2, lastIndex) != bullStart2 //and a new range has started, push new elements in the arrays which are made for that range specifically
+                array.push(minRangesStart2, 0)
+                array.push(minRangesEnd2, 0)
+                array.push(minRangesLowest2, 0)
+            //
+        //
+
+        if array.size(minRangesStart2) == 0  //if there is nothing in the array, push a new element in to store values
+            array.push(minRangesStart2, 0)
+            array.push(minRangesEnd2, 0)
+            array.push(minRangesLowest2, 0)
+        //
+
+        lastIndex := array.size(minRangesStart2)-1
+        array.set(minRangesLowest2, lastIndex, curr_lowest2) //set the lowest value for the current range
+        array.set(minRangesStart2, lastIndex, bullStart2) //set the start shift for the current range
+        array.set(minRangesEnd2, lastIndex, bar_index) //set the end shift for the current range
+    //
+
+
+    if array.size(minRangesLowest2) >= 2 and ao[1] < ao and ao >= 0
+        int lastIndex = array.size(minRangesLowest2) - 1
+
+        //only compare the lowest value of R2 (current range) with lowest value of R1 (previous range) once R2 is complete
+        if array.get(minRangesLowest2, lastIndex) > array.get(minRangesLowest2, lastIndex- 1) and array.get(minRangesLowest2, lastIndex) > highestLowestVal2 //checking if there is a higher low in the current range
+            highestLowestVal2 := array.get(minRangesLowest2, lastIndex)
+            highestLowestIndex2 := lastIndex
+        //
+    //
+
+
+    bool bullHidDiv = false
+    float _lowest1 = 0, float _lowest2 = 0
+
+
+    if array.size(minRangesLowest2) >= 2 and highestLowestIndex2 >= 0
+
+        int lastIndex = array.size(minRangesLowest2) - 1
+        
+        //get the start and end shifts of the 2 ranges
+        int start2 = array.get(minRangesStart2, lastIndex)
+        int end2 = array.get(minRangesEnd2, lastIndex)
+
+        int start1 = array.get(minRangesStart2, highestLowestIndex2)
+        int end1 = array.get(minRangesEnd2, highestLowestIndex2)
+
+        //if lowest in range 2 is lesser than lowest in range 1
+        if array.get(minRangesLowest2, lastIndex) < highestLowestVal2 and highestLowestIndex2 < lastIndex
+
+            int endShift = bar_index - end1
+            int startShift = bar_index - start1
+            int index1 = 0
+            _lowest1 := low[startShift]
+            
+            //DO NOT CHANGE THE WAY THE 2ND IF CONDITION IS WRITTEN, BECAUSE IT ONLY WORKS THIS WAY... I DONT KNOW WHY THOUGH
+            for i = startShift to endShift
+                if low[i] < _lowest1
+                    _lowest1 := low[i]
+                //
+
+                if low[i] <= _lowest1
+                    index1 := i
+                //
+            //
+
+            endShift := bar_index - end2
+            startShift := bar_index - start2
+            int index2 = 0
+            _lowest2 := low[startShift]
+            
+            //DO NOT CHANGE THE WAY THE 2ND IF CONDITION IS WRITTEN, BECAUSE IT ONLY WORKS THIS WAY... I DONT KNOW WHY THOUGH
+            for i = endShift to startShift
+
+                if low[i] < _lowest2
+                    _lowest2 := low[i]
+                //
+
+                if low[i] <= _lowest2
+                    index2 := i
+                //
+            //
+
+
+            //check if lowest price in range 1 < lowest price in range 2
+            if _lowest1 < _lowest2 
+                bullHidDiv := true
+                line.new(time[index1], _lowest1, time[index2], _lowest2, xloc = xloc.bar_time, extend = extend.none, color = hbullishcolor, style = line.style_solid, width = 1)
+            //
+
+            //storing these values for entry condition
+            hBullLow2 := _lowest2
+            hBullLow1 := _lowest1
+            hBullLow2Bar := bar_index - index2
+        //
+    //
+
+
+
+
+
+
+
+
+
+
+
+
+    //FOR BEARISH HIDDDEN DIVERGENCE
+
+
+
+    //VARIABLES FOR HIDDEN DIV
+
+    bool lookingForBear2 = false
+
+    float curr_highest2 = 0
+    int bearStart2 = 0
+
+    var maxRangesHighest2 = array.new_float(0)
+    var maxRangesLowest2 = array.new_float(0)
+    var maxRangesEnd2 = array.new_int(0)
+    var maxRangesStart2 = array.new_int(0)
+
+    var int highestIndex2 = -1
+    var int lowestHighestIndex2 = -1
+
+    var float lowestHighestVal2 = 100000
+
+    var int lowestStartHid2 = -1
+
+
+
+    //LOGIC FOR HIDDEN DIV
+
+    bearStart2 := bar_index - findSellStartPoint()
+
+    float highest = 0
+    int end3 = bar_index - bearStart2
+
+    for i = 0 to end3
+        if ao[i] > highest
+            highest := ao[i]
+    //
+    curr_highest2 := highest
+
+    //start afresh when there is a a zigzag down
+    if not swingHigh
+        bearStart2 := 0
+        curr_highest2 := 0
+        array.clear(maxRangesHighest2)
+        array.clear(maxRangesEnd2)
+        array.clear(maxRangesStart2)
+        highestIndex2 := -1
+        lowestHighestIndex2 := -1
+        lowestHighestVal2 := 100000
+        lowestStartHid2 := -1
+    //
+
+
+    if swingHigh
+        if ao > 0
+            lookingForBear2 := true
+    //
+
+
+    //storing the highest value, start shift & end shift of the current range & updating it as values change
+    if lookingForBear2 == true  
+        int lastIndex = array.size(maxRangesStart2) - 1
+
+        if array.size(maxRangesStart2) >= 1  //if there are elements in the arrays already, 
+            if array.get(maxRangesStart2, lastIndex) != bearStart2 //and a new range has started, push new elements in the arrays which are made for that range specifically
+                array.push(maxRangesStart2, 0)
+                array.push(maxRangesEnd2, 0)
+                array.push(maxRangesHighest2, 0)
+            //
+        //
+
+        if array.size(maxRangesStart2) == 0  //if there is nothing in the array, push a new element in to store values
+            array.push(maxRangesStart2, 0)
+            array.push(maxRangesEnd2, 0)
+            array.push(maxRangesHighest2, 0)
+        //
+
+        lastIndex := array.size(maxRangesStart2)-1
+        array.set(maxRangesHighest2, lastIndex, curr_highest2) //set the highest value for the current range
+        array.set(maxRangesStart2, lastIndex, bearStart2) //set the start shift for the current range
+        array.set(maxRangesEnd2, lastIndex, bar_index) //set the end shift for the current range
+    //
+
+
+    if array.size(maxRangesHighest2) >= 2 and ao[1] > ao and ao < 0
+        int lastIndex = array.size(maxRangesHighest2) - 1
+
+        //only compare the highest value of R2 (current range) with highest value of R1 (previous range) once R2 is complete
+        if array.get(maxRangesHighest2, lastIndex) < array.get(maxRangesHighest2, lastIndex- 1) and array.get(maxRangesHighest2, lastIndex) < lowestHighestVal2 //checking if there is a lower high in the current range
+            lowestHighestVal2 := array.get(maxRangesHighest2, lastIndex)
+            lowestHighestIndex2 := lastIndex
+        //
+    //
+
+
+    bool bearHidDiv = false
+    float _highest1 = 0, float _highest2 = 0
+
+
+    if array.size(maxRangesHighest2) >= 2 and lowestHighestIndex2 >= 0
+
+        int lastIndex = array.size(maxRangesHighest2) - 1
+        
+        //get the start and end shifts of the 2 ranges
+        int start2 = array.get(maxRangesStart2, lastIndex)
+        int end2 = array.get(maxRangesEnd2, lastIndex)
+
+        int start1 = array.get(maxRangesStart2, lowestHighestIndex2)
+        int end1 = array.get(maxRangesEnd2, lowestHighestIndex2)
+
+        //if highest in range 2 is greater than highest in range 1
+        if array.get(maxRangesHighest2, lastIndex) > lowestHighestVal2 and lowestHighestIndex2 < lastIndex
+
+
+            int startShift = bar_index - start1
+            int endShift = bar_index - end1
+            int _index1 = 0
+            _highest1 := high[startShift]
+
+            for i = startShift to endShift 
+                if high[i] > _highest1
+                    _highest1 := high[i]
+                //
+
+                if high[i] >= _highest1
+                    _index1 := i
+                //
+            //
+
+            startShift := bar_index - start2
+            endShift := bar_index - end2
+            int _index2 = 0
+            _highest2 := high[startShift]
+
+            for i = startShift to endShift 
+                if high[i] > _highest2
+                    _highest2 := high[i]
+                //
+
+                if high[i] >= _highest2
+                    _index2 := i
+                //
+            //
+
+
+            //check if highest price in range 1 < highest price in range 2
+            if _highest1 > _highest2 
+                bearHidDiv := true
+                line.new(time[_index1], _highest1, time[_index2], _highest2, xloc = xloc.bar_time, extend = extend.none, color = hbearishcolor, style = line.style_solid, width = 1)
+            //
+
+            //storing these values for entry condition
+            hBearHigh2 := _highest2
+            hBearHigh1 := _highest1
+            hBearHigh2Bar := bar_index - _index2
+
+        //
+    //
+//
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ==========================
+// ==== Helper Functions ====
+// ==========================
+
+series_from(feature_string, _close, _high, _low, _hlc3, f_paramA, f_paramB) =>
+    switch feature_string
+        "RSI" => ml.n_rsi(_close, f_paramA, f_paramB)
+        "WT" => ml.n_wt(_hlc3, f_paramA, f_paramB)
+        "CCI" => ml.n_cci(_close, f_paramA, f_paramB)
+        "ADX" => ml.n_adx(_high, _low, _close, f_paramA)
+
+get_lorentzian_distance(int i, int featureCount, FeatureSeries featureSeries, FeatureArrays featureArrays) =>
+    switch featureCount
+        5 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) + 
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) + 
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) + 
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i))) + 
+             math.log(1+math.abs(featureSeries.f5 - array.get(featureArrays.f5, i)))
+        4 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) +
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i)))
+        3 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i)))
+        2 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i)))
+
+// ================  
+// ==== Inputs ==== 
+// ================ 
+
+// Settings Object: General User-Defined Inputs
+Settings settings = 
+ Settings.new(
+   close,
+   input.int(title='Neighbors Count', defval=8, group="General Settings", minval=1, maxval=100, step=1, tooltip="Number of neighbors to consider"),
+   input.int(title="Max Bars Back", defval=2000, group="General Settings"),
+   5,
+   1,
+   false,
+   false
+ )
+   
+// Trade Stats Settings
+// Note: The trade stats section is NOT intended to be used as a replacement for proper backtesting. It is intended to be used for calibration purposes only.
+showTradeStats = true
+useWorstCase = false
+
+// Settings object for user-defined settings
+FilterSettings filterSettings =
+ FilterSettings.new(
+   true,
+   true,
+   false,
+   -0.1,
+   20
+ )
+
+// Filter object for filtering the ML predictions
+Filter filter =
+ Filter.new(
+   ml.filter_volatility(1, 10, filterSettings.useVolatilityFilter), 
+   ml.regime_filter(ohlc4, filterSettings.regimeThreshold, filterSettings.useRegimeFilter),
+   ml.filter_adx(settings.source, 14, filterSettings.adxThreshold, filterSettings.useAdxFilter)
+  )
+
+// Feature Variables: User-Defined Inputs for calculating Feature Series. 
+f1_string = "RSI"
+f1_paramA = 14
+f1_paramB = 1
+f2_string = "WT"
+f2_paramA = 10
+f2_paramB = 11
+f3_string = "CCI"
+f3_paramA = 20
+f3_paramB = 1
+f4_string = "ADX"
+f4_paramA = 20
+f4_paramB = 2
+f5_string = "RSI"
+f5_paramA = 9
+f5_paramB = 1
+
+// FeatureSeries Object: Calculated Feature Series based on Feature Variables
+featureSeries = 
+ FeatureSeries.new(
+   series_from(f1_string, close, high, low, hlc3, f1_paramA, f1_paramB), // f1
+   series_from(f2_string, close, high, low, hlc3, f2_paramA, f2_paramB), // f2 
+   series_from(f3_string, close, high, low, hlc3, f3_paramA, f3_paramB), // f3
+   series_from(f4_string, close, high, low, hlc3, f4_paramA, f4_paramB), // f4
+   series_from(f5_string, close, high, low, hlc3, f5_paramA, f5_paramB)  // f5
+ )
+
+// FeatureArrays Variables: Storage of Feature Series as Feature Arrays Optimized for ML
+// Note: These arrays cannot be dynamically created within the FeatureArrays Object Initialization and thus must be set-up in advance.
+var f1Array = array.new_float()
+var f2Array = array.new_float()
+var f3Array = array.new_float()
+var f4Array = array.new_float()
+var f5Array = array.new_float()
+array.push(f1Array, featureSeries.f1)
+array.push(f2Array, featureSeries.f2)
+array.push(f3Array, featureSeries.f3)
+array.push(f4Array, featureSeries.f4)
+array.push(f5Array, featureSeries.f5)
+
+// FeatureArrays Object: Storage of the calculated FeatureArrays into a single object
+featureArrays = 
+ FeatureArrays.new(
+  f1Array, // f1
+  f2Array, // f2
+  f3Array, // f3
+  f4Array, // f4
+  f5Array  // f5
+ )
+
+// Label Object: Used for classifying historical data as training data for the ML Model
+Label direction = 
+ Label.new(
+   long=1, 
+   short=-1, 
+   neutral=0
+  )
+
+// Derived from General Settings
+maxBarsBackIndex = last_bar_index >= settings.maxBarsBack ? last_bar_index - settings.maxBarsBack : 0
+
+// EMA Settings 
+useEmaFilter = input.bool(title="Use EMA Filter", defval=false, group="Filters", inline="ema")
+emaPeriod = input.int(title="Period", defval=200, minval=1, step=1, group="Filters", inline="ema", tooltip="The period of the EMA used for the EMA Filter.")
+isEmaUptrend = useEmaFilter ? close > ta.ema(close, emaPeriod) : true
+isEmaDowntrend = useEmaFilter ? close < ta.ema(close, emaPeriod) : true
+useSmaFilter = false
+smaPeriod = 200
+isSmaUptrend = useSmaFilter ? close > ta.sma(close, smaPeriod) : true
+isSmaDowntrend = useSmaFilter ? close < ta.sma(close, smaPeriod) : true
+
+// Nadaraya-Watson Kernel Regression Settings
+useKernelFilter = true
+showKernelEstimate = true
+useKernelSmoothing = false
+h = 8
+r = 8
+x = 25
+lag = 2
+
+// Display Settings
+showBarColors = true
+showBarPredictions = true
+useAtrOffset = false
+barPredictionsOffset = 0
+
+// =================================
+// ==== Next Bar Classification ====
+// =================================
+
+// This model specializes specifically in predicting the direction of price action over the course of the next 4 bars. 
+// To avoid complications with the ML model, this value is hardcoded to 4 bars but support for other training lengths may be added in the future.
+src = settings.source
+y_train_series = src[4] < src[0] ? direction.short : src[4] > src[0] ? direction.long : direction.neutral
+var y_train_array = array.new_int(0)
+
+// Variables used for ML Logic
+var predictions = array.new_float(0)
+var prediction = 0.
+var signal = direction.neutral
+var distances = array.new_float(0)
+
+array.push(y_train_array, y_train_series)
+
+
+lastDistance = -1.0
+size = math.min(settings.maxBarsBack-1, array.size(y_train_array)-1)
+sizeLoop = math.min(settings.maxBarsBack-1, size)
+
+if bar_index >= maxBarsBackIndex //{ 
+    for i = 0 to sizeLoop //{
+        d = get_lorentzian_distance(i, settings.featureCount, featureSeries, featureArrays) 
+        if d >= lastDistance and i%4 //{
+            lastDistance := d            
+            array.push(distances, d)
+            array.push(predictions, math.round(array.get(y_train_array, i)))
+            if array.size(predictions) > settings.neighborsCount //{
+                lastDistance := array.get(distances, math.round(settings.neighborsCount*3/4))
+                array.shift(distances)
+                array.shift(predictions)
+            //}
+        //}
+    //}
+    prediction := array.sum(predictions)
+//}
+
+// ============================
+// ==== Prediction Filters ====
+// ============================
+
+// User Defined Filters: Used for adjusting the frequency of the ML Model's predictions
+filter_all = filter.volatility and filter.regime and filter.adx
+
+// Filtered Signal: The model's prediction of future price movement direction with user-defined filters applied
+signal := prediction > 0 and filter_all ? direction.long : prediction < 0 and filter_all ? direction.short : nz(signal[1])
+
+// Bar-Count Filters: Represents strict filters based on a pre-defined holding period of 4 bars
+var int barsHeld = 0
+barsHeld := ta.change(signal) ? 0 : barsHeld + 1
+isHeldFourBars = barsHeld == 4
+isHeldLessThanFourBars = 0 < barsHeld and barsHeld < 4
+
+// Fractal Filters: Derived from relative appearances of signals in a given time series fractal/segment with a default length of 4 bars
+isDifferentSignalType = ta.change(signal)
+isEarlySignalFlip = ta.change(signal) and (ta.change(signal[1]) or ta.change(signal[2]) or ta.change(signal[3]))
+isBuySignal = signal == direction.long and isEmaUptrend and isSmaUptrend
+isSellSignal = signal == direction.short and isEmaDowntrend and isSmaDowntrend
+isLastSignalBuy = signal[4] == direction.long and isEmaUptrend[4] and isSmaUptrend[4]
+isLastSignalSell = signal[4] == direction.short and isEmaDowntrend[4] and isSmaDowntrend[4]
+isNewBuySignal = isBuySignal and isDifferentSignalType
+isNewSellSignal = isSellSignal and isDifferentSignalType
+
+// Kernel Regression Filters: Filters based on Nadaraya-Watson Kernel Regression using the Rational Quadratic Kernel
+// For more information on this technique refer to my other open source indicator located here: 
+// https://www.tradingview.com/script/AWNvbPRM-Nadaraya-Watson-Rational-Quadratic-Kernel-Non-Repainting/
+c_green = color.new(#009988, 20)
+c_red = color.new(#CC3311, 20)
+transparent = color.new(#000000, 100)
+yhat1 = kernels.rationalQuadratic(settings.source, h, r, x)
+yhat2 = kernels.gaussian(settings.source, h-lag, x)
+kernelEstimate = yhat1
+// Kernel Rates of Change
+bool wasBearishRate = yhat1[2] > yhat1[1]
+bool wasBullishRate = yhat1[2] < yhat1[1]
+bool isBearishRate = yhat1[1] > yhat1
+bool isBullishRate = yhat1[1] < yhat1
+isBearishChange = isBearishRate and wasBullishRate
+isBullishChange = isBullishRate and wasBearishRate
+// Kernel Crossovers
+bool isBullishCrossAlert = ta.crossover(yhat2, yhat1)
+bool isBearishCrossAlert = ta.crossunder(yhat2, yhat1) 
+bool isBullishSmooth = yhat2 >= yhat1
+bool isBearishSmooth = yhat2 <= yhat1
+// Kernel Colors
+color colorByCross = isBullishSmooth ? c_green : c_red
+color colorByRate = isBullishRate ? c_green : c_red
+color plotColor = showKernelEstimate ? (useKernelSmoothing ? colorByCross : colorByRate) : transparent
+plot(useKernel ? kernelEstimate:na, color=plotColor, linewidth=2, title="Kernel Regression Estimate")
+// Alert Variables
+bool alertBullish = useKernelSmoothing ? isBullishCrossAlert : isBullishChange
+bool alertBearish = useKernelSmoothing ? isBearishCrossAlert : isBearishChange
+// Bullish and Bearish Filters based on Kernel
+isBullish = useKernelFilter ? (useKernelSmoothing ? isBullishSmooth : isBullishRate) : true
+isBearish = useKernelFilter ? (useKernelSmoothing ? isBearishSmooth : isBearishRate) : true
+
+// ===========================
+// ==== Entries and Exits ====
+// ===========================
+
+// Entry Conditions: Booleans for ML Model Position Entries
+startLongTrade = isNewBuySignal and isBullish and isEmaUptrend and isSmaUptrend
+startShortTrade = isNewSellSignal and isBearish and isEmaDowntrend and isSmaDowntrend
+
+
+// =========================
+// ==== Plotting Labels ====
+// =========================
+
+// Note: These will not repaint once the most recent bar has fully closed. By default, signals appear over the last closed bar; to override this behavior set offset=0.
+plotshape(startLongTrade and useLC ? low : na, 'Buy', shape.labelup, location.belowbar, color=ml.color_green(prediction), size=size.small, offset=0)
+plotshape(startShortTrade and useLC ? high : na, 'Sell', shape.labeldown, location.abovebar, ml.color_red(-prediction), size=size.small, offset=0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// FOR KERNEL CROSSOVER V1
+
+
+
+
+
+
+
+
+//user Input for the fast Kernel line
+string kernelFastType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Fast Kernel Settings" )
+float kernelFastWeight = input.float(8, "Rel Weight", 0 , 50, step = 0.2, group = "Fast Kernel Settings")
+int kernelFastLookback = input.int(8, "Lookback",2 , 500, group = "Fast Kernel Settings")
+int kernelFastRegressionStart = input.int(25, "Regression Start",2 , 400, group = "Fast Kernel Settings")
+bool kernelFastSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Fast Kernel Settings")
+int kernelFastSmoothPeriod = input.int(4, "",2 , 200, inline = "Smooth", group = "Fast Kernel Settings")
+
+//user Input for the slow Kernel line
+string kernelSlowType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Slow Kernel Settings" )
+float kernelSlowWeight = input.float(1, "Rel Weight", 0 , 5, step = 0.2, group = "Slow Kernel Settings")
+int kernelSlowLookback = input.int(80, "Lookback",2 , 500, group = "Slow Kernel Settings")
+int kernelSlowRegressionStart = input.int(120, "Regression Start",2 , 400, group = "Slow Kernel Settings")
+bool kernelSlowSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Slow Kernel Settings")
+int kernelSlowSmoothPeriod = input.int(40, "",2 , 200, inline = "Smooth", group = "Slow Kernel Settings")
+
+//user Input for the Blend line
+bool showBlend = input.bool(false, "Blend Kernels", group = "Blend Lines")
+float blendAmount = input.float(0.5, "Blend Amount", 0 , 1, step = 0.05, group = "Blend Lines")
+bool blendSmooth = input.bool(false, "Smooth Line", inline = "Smooth", group = "Blend Lines")
+int blendSmoothPeriod = input.int(20, "",2 , 200, inline = "Smooth", group = "Blend Lines")
+
+//fast Kernel line
+float kernelFast = switch kernelFastType
+    "Rational Quadratic" => kernels.rationalQuadratic(close, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+    "Gaussian" => kernels.gaussian(close, kernelFastLookback, kernelFastRegressionStart)
+
+if kernelFastSmooth and useKernelCrossover
+    kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
+    
+kernelFastRising = ta.rising(kernelFast, 1)
+kernelFastColor = kernelFastRising ? color.rgb(84, 39, 114) : color.rgb(223, 71, 116)
+plot(useKernelCrossover ? kernelFast:na, "Kernel Fast", kernelFastColor, 1)
+
+//slow Kernel line
+float kernelSlow = switch kernelSlowType
+    "Rational Quadratic" => kernels.rationalQuadratic(close, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+    "Gaussian" => kernels.gaussian(close, kernelSlowLookback, kernelSlowRegressionStart)
+
+if kernelSlowSmooth and useKernelCrossover
+    kernelSlow := ta.sma(kernelSlow, kernelSlowSmoothPeriod)
+
+kernelSlowRising = ta.rising(kernelSlow, 1)
+kernelSlowColor = kernelSlowRising ? color.rgb(84, 39, 114) : color.rgb(223, 71, 116)
+plot(useKernelCrossover ? kernelSlow:na, "Kernel Slow", kernelSlowColor, 1)
+
+//Kernel Cross
+plot(ta.cross(kernelSlow, kernelFast) and useKernelCrossover ? kernelSlow : na, "Kernel Cross", color=#770577, style = plot.style_cross, linewidth = 4)
+
+//Blend Line
+dif = math.max(kernelFast, kernelSlow) - math.min(kernelFast, kernelSlow)
+blend = math.min(kernelFast, kernelSlow) + dif * blendAmount
+if blendSmooth
+    blend := ta.sma(blend, blendSmoothPeriod)
+
+plot(showBlend and useKernelCrossover ? blend : na, color=color.rgb(24, 24, 24, 80), title="Kernel Blend", linewidth = 1)
+
