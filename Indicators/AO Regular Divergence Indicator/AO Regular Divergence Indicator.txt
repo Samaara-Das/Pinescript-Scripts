@@ -1,0 +1,511 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © sammie123567858
+
+//@version=5
+indicator("Ao Regular Divergence", 'AO REG DIV', true, format = format.price, max_bars_back = 5000, max_lines_count = 500, precision = 5)
+
+
+//📌📌📌📌📌📌📌📌📌📌📌📌📌📌📌📌
+//IMPORTANT 
+//make sure that the repaint input is false
+//otherwise it will draw bullish divergences in a zz up leg & bearish divergences in a zz down leg (which is wrong)
+
+
+//📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝📝
+// This just draws regular divergences using ZZ
+
+//Indicator description: 
+//for bearish divergences:
+//it will start looking for divergences if there's a zigzag low as the latest zz swing. it will stop if there is a zigzag high
+
+//it will wait untill there is more than 1 ao range above 0. 
+//it will find the highest ao in a range. this highest ao makes that range the highest range upto the current bar
+//if it finds a new higher ao (in a new range or the same range), it will update the highest ao to the new higher ao
+
+//it will compare the highest range (which it has among all the ao ranges in the current zz leg) with the current ao range. 
+//the current ao range has to be less than the highest range
+
+//it will find the highest prices within both the ao ranges. it will check if the highest price (in the leftmost range) is less than the highest price (in the rightmost range)
+//if that is so, it will draw a trendline from the 1st highest price to the 2nd highest price
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+//for bullish divergences:
+//it will start looking for divergences if there's a zigzag high as the latest zz swing. it will stop if there is a zigzag low
+
+//it will wait untill there is more than 1 ao range below 0. 
+//it will find the lowest ao in a range. this lowest ao makes that range the lowest range upto the current bar
+//if it finds a new lower ao (in a new range or the same range), it will update the lowest ao to the new lower ao
+
+//it will compare the lowest range (which it has among all the ao ranges in the current zz leg) with the current ao range. 
+//the current ao range has to be greater than the lowest range
+
+//it will find the lowest prices within both the ao ranges. it will check if the lowest price (in the leftmost range) is greater than the lowest price (in the rightmost range)
+//if that is so, it will draw a trendline from the 1st lowest price to the 2nd lowest price
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------
+
+//the logic for the trendline has now been updated
+//it will start from the same place it did earlier but it will end at the highest high/lowest low 
+//it will look for the highest high/lowest low from the start of trend line to current bar
+
+
+//ao indicator calculation
+ao = ta.sma(hl2,5) - ta.sma(hl2,34)
+diff = ao - ao[1]
+
+
+
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+var track = 0
+var bool swingHigh = false
+
+//zigzag inputs
+Depth       = input.int(144, "Depth", minval=1, step=1, group="Zigzag Settings")
+Deviation   = input.int(75, "Deviation", minval=1, step=1, group="Zigzag Settings")
+Backstep    = input.int(21, "Backstep", minval=2, step=1, group="Zigzag Settings")
+line_thick  = input.int(2, "Line Thickness", minval=1, maxval=4, group="Zigzag Settings")
+upcolor     = input.color(color.new(color.lime, 0), "Color of up zigzag line", group="Zigzag Settings")
+dncolor     = input.color(color.new(color.red, 0), "Color of down zigzag line", group="Zigzag Settings")
+text_color  = input.color(color.white, "Text color for labels of zigzag", group="Zigzag Settings")
+Show_zz     = input.bool(false, "Show Zigzag?", group="Zigzag Settings")
+repaint     = false
+
+bullishcolor     = input.color(color.new(color.lime, 0), "Color of bullish divergences", group="Divergence Settings")
+bearishcolor     = input.color(color.new(color.red, 0), "Color of bearish divergences", group="Divergence Settings")
+
+
+//zigzag indicator calculation
+var last_h = 1, last_h := last_h + 1
+var last_l = 1, last_l := last_l + 1
+var lw = 1, var hg = 1
+lw := lw + 1, hg := hg + 1
+p_lw = -ta.lowestbars(Depth), p_hg = -ta.highestbars(Depth)
+lowing = lw == p_lw or low - low[p_lw] > Deviation*syminfo.mintick
+highing = hg == p_hg or high[p_hg] - high > Deviation*syminfo.mintick
+lh = ta.barssince(not highing[1]), ll = ta.barssince(not lowing[1])
+down = ta.barssince(not (lh > ll)) >= Backstep, lower = low[lw] > low[p_lw], higher = high[hg] < high[p_hg]
+if lw != p_lw and (not down[1] or lower)
+    lw := p_lw < hg ? p_lw : 0
+if hg != p_hg and (down[1] or higher)
+    hg := p_hg < lw ? p_hg : 0
+
+line zz = na
+label point = na
+x1 = down ? lw : hg
+y1 = down ? low[lw] : high[hg]
+
+if down == down[1]
+    if repaint
+        label.delete(point[1])
+        line.delete(zz[1])
+    down
+if down != down[1]
+    if down
+        last_h := hg
+    else
+        last_l := lw
+    if not repaint
+        nx = down?last_h:last_l
+        track := bar_index-nx
+        swingHigh := down ? true: false
+        if Show_zz == true
+            zz := line.new(bar_index-nx, down ? high[nx] : low[nx], bar_index-(down?last_l:last_h), down ? low[last_l] : high[last_h], width=line_thick, color=down?upcolor:dncolor)
+            point := label.new(bar_index-nx, down ? high[nx] : low[nx], down ? (high[nx] > high[last_h[1]]?"HH":"LH") : (low[nx] < low[last_l[1]] ? "LL" : "HL"), style=down?label.style_label_down:label.style_label_up, size=size.tiny, color=down?dncolor:upcolor, textcolor=color.new(text_color, 0), tooltip = down ? (high[nx] > high[last_h[1]]?"Higher High":"Lower High") : (low[nx] < low[last_l[1]] ? "Lower Low" : "Higher Low"))
+
+    down
+    
+if repaint
+    track := bar_index-x1
+    swingHigh := down ? false: true
+    if Show_zz == true
+        zz := line.new(bar_index-(down?last_h:last_l), down ? high[last_h] : low[last_l], bar_index-x1, y1, width=line_thick, color=down?dncolor:upcolor)
+        point := label.new(bar_index-x1, y1, down ? (low[x1] < low[last_l] ? "LL" : "HL") : (high[x1] > high[last_h]?"HH":"LH"), style=down?label.style_label_up:label.style_label_down, size=size.tiny, color=down?upcolor:dncolor, textcolor=color.new(text_color, 0), tooltip = down ? (low[x1] < low[last_l] ? "Lower Low" : "Higher Low") : (high[x1] > high[last_h]?"Higher High":"Lower High"))
+        
+// 
+
+
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+//ao logic
+
+bool lookingForBull = false
+bool lookingForBear = false
+
+float curr_lowest = 0
+int bullStart = 0
+float curr_highest = 0
+int bearStart = 0
+
+var int bearishTrendlineStart = 0
+var int bullishTrendlineStart = 0
+
+var latestBullLine = line(na)
+var bullLineCounter = -1
+var latestBearLine = line(na)
+var bearLineCounter = -1
+
+//to find where the ao range starts (the bar at which the ao first started being negative)
+findBuyStartPoint() =>
+    int shift = 0
+
+    int i = 0
+    while ao[i] < 0 
+        shift := i
+        i := i + 1
+    //
+
+    shift 
+//
+
+//to find the lowest ao in the current range (starting from its shift 0 upto the start of the range)
+findLowestAo(int start) =>
+    float lowest = 0
+    int end = bar_index - start
+
+    for i = 0 to end
+        if ao[i] < lowest
+            lowest := ao[i]
+    //
+
+    lowest
+//
+
+//to find lowest low (in price) in a given ao range 
+findLowestPrice(int start, int end) =>
+    int endShift = bar_index - end
+    int startShift = bar_index - start
+    float lowest = low[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if low[i] < lowest
+            lowest := low[i]
+            barTime := i
+        //
+    //
+
+    [lowest, barTime]
+// 
+
+//to find lowest low (in price) in a given price range for updating the trendline
+findLowest(int start, int end) =>
+    int endShift = end
+    int startShift = start
+    float lowest = low[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if low[i] < lowest
+            lowest := low[i]
+            barTime := i
+        //
+    //
+
+    [lowest, barTime]
+// 
+
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+//to find where the ao range starts (the bar at which the ao first started being negative)
+findSellStartPoint() =>
+    int shift = 0
+
+    int i = 0
+    while ao[i] > 0 
+        shift := i
+        i := i + 1
+    //
+
+    shift 
+//
+
+//to find the lowest ao in the current range (starting from its shift 0 upto the start of the range)
+findHighestAo(int start) =>
+    float highest = 0
+    int end = bar_index - start
+
+    for i = 0 to end
+        if ao[i] > highest
+            highest := ao[i]
+    //
+
+    highest
+//
+
+//to find lowest low (in price) in a given range 
+findHighestPrice(int start, int end) =>
+    int endShift = bar_index - end
+    int startShift = bar_index - start
+    float highest = high[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if high[i] > highest
+            highest := high[i]
+            barTime := i
+        //
+    //
+
+    [highest, barTime]
+// 
+
+//to find lowest low (in price) in a given price range for updating the trendline
+findHighest(int start, int end) =>
+    int endShift = end
+    int startShift = start
+    float highest = high[startShift]
+    int barTime = 0
+    
+    for i = startShift to endShift 
+        if high[i] > highest
+            highest := high[i]
+            barTime := i
+        //
+    //
+
+    [highest, barTime]
+// 
+
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+//for bullish divergences
+
+bullStart := bar_index - findBuyStartPoint()
+curr_lowest := findLowestAo(bullStart)
+
+var minRangesLowest = array.new_float(0)
+var minRangesEnd = array.new_int(0)
+var minRangesStart = array.new_int(0)
+
+var int lowestIndex = -1
+var float lowestVal = 0
+var int lowestStart = -1
+
+//start afresh when there is a a zigzag down
+if not swingHigh
+    bullStart := 0
+    curr_lowest := 0
+    array.clear(minRangesLowest)
+    array.clear(minRangesEnd)
+    array.clear(minRangesStart)
+    lowestIndex := -1
+    lowestVal := 0
+    lowestStart := -1
+//
+
+
+if swingHigh
+    if ao < 0
+        lookingForBull := true
+//
+            
+
+
+//storing the lowest value, start shift & end shift of the current range & updating it as values change
+if lookingForBull == true  
+    int lastIndex = array.size(minRangesStart) - 1
+
+    if array.size(minRangesStart) >= 1 
+        if array.get(minRangesStart, lastIndex) != bullStart
+            array.push(minRangesStart, 0)
+            array.push(minRangesEnd, 0)
+            array.push(minRangesLowest, 0)
+        //
+    //
+
+    if array.size(minRangesStart) == 0
+        array.push(minRangesStart, 0)
+        array.push(minRangesEnd, 0)
+        array.push(minRangesLowest, 0)
+    //
+
+    lastIndex := array.size(minRangesStart)-1
+    array.set(minRangesLowest, lastIndex, curr_lowest) //set the lowest value for the current range
+    array.set(minRangesStart, lastIndex, bullStart) //set the start shift for the current range
+    array.set(minRangesEnd, lastIndex, bar_index) //set the end shift for the current range
+//
+
+
+//checking if there is more than 1 range to compare with the lowest ao val up untill the current bar
+if array.size(minRangesStart) >= 1 
+    int lastIndex = array.size(minRangesStart) - 1
+
+    if array.get(minRangesLowest, lastIndex) < lowestVal
+        lowestVal := array.get(minRangesLowest, lastIndex)
+        lowestIndex := lastIndex
+    //
+//
+
+
+//checking if there are more than 2 ranges to compare/ delete lines
+if array.size(minRangesStart) >= 2 
+
+    int lastIndex = array.size(minRangesStart) - 1
+
+    //get the start and end shifts of the 2 ranges
+    int start2 = array.get(minRangesStart, lastIndex)
+    int end2 = array.get(minRangesEnd, lastIndex)
+
+    int start1 = array.get(minRangesStart, lowestIndex)
+    int end1 = array.get(minRangesEnd, lowestIndex)
+
+    //if lowest in range 2 is greater than lowest in range 1
+    if array.get(minRangesLowest, lastIndex) > lowestVal
+        [lowest1, index1] = findLowestPrice(start1, end1)
+        [lowest2, index2] = findLowestPrice(start2, end2)
+
+        //check if lowest price in range 1 > lowest price in range 2
+        if lowest1 > lowest2 
+
+            if lowestStart != start1
+                latestBullLine := line.new(time[index2], lowest2, time[index1], lowest1, xloc = xloc.bar_time, extend = extend.none, color = bullishcolor, style = line.style_solid, width = 1)
+                bullLineCounter := bullLineCounter + 1
+                lowestStart := start1
+            //
+
+            if lowestStart == start1
+
+                //to find the lowest low from the start of trendline to current bar
+                [currLowest, currLowestIndex] = findLowest(index1, 0)
+                
+                line.set_x1(latestBullLine, time[currLowestIndex])
+                line.set_y1(latestBullLine, currLowest)
+            //
+
+        //
+
+    //
+
+//
+
+
+
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+//for bearish divergences
+
+bearStart := bar_index - findSellStartPoint()
+curr_highest := findHighestAo(bearStart)
+
+var maxRangesHighest = array.new_float(0)
+var maxRangesEnd = array.new_int(0)
+var maxRangesStart = array.new_int(0)
+
+var int highestIndex = -1
+var float highestVal = 0
+var int highestStart = -1
+
+
+//start afresh when there is a a zigzag up
+if swingHigh
+    bearStart := 0
+    curr_highest := 0
+    array.clear(maxRangesHighest)
+    array.clear(maxRangesEnd)
+    array.clear(maxRangesStart)
+    highestIndex := -1
+    highestVal := 0
+    highestStart := -1
+//
+
+
+if not swingHigh
+    if ao > 0 
+        lookingForBear := true
+//
+            
+
+
+//storing the highest value, start shift & end shift of the current range & updating it as values change
+if lookingForBear == true 
+    int lastIndex = array.size(maxRangesStart) - 1
+
+    if array.size(maxRangesStart) >= 1 
+        if array.get(maxRangesStart, lastIndex) != bearStart
+            array.push(maxRangesStart, 0)
+            array.push(maxRangesEnd, 0)
+            array.push(maxRangesHighest, 0)
+        //
+    //
+
+    if array.size(maxRangesStart) == 0
+        array.push(maxRangesStart, 0)
+        array.push(maxRangesEnd, 0)
+        array.push(maxRangesHighest, 0)
+    //
+
+    lastIndex := array.size(maxRangesStart)-1
+    array.set(maxRangesHighest, lastIndex, curr_highest) //set the highest value for the current range
+    array.set(maxRangesStart, lastIndex, bearStart) //set the start shift for the current range
+    array.set(maxRangesEnd, lastIndex, bar_index) //set the end shift for the current range
+//
+
+
+//checking if there is more than 1 range to compare with the highest ao val up untill the current bar
+if array.size(maxRangesStart) >= 1 
+    int lastIndex = array.size(maxRangesStart) - 1
+
+    if array.get(maxRangesHighest, lastIndex) > highestVal
+        highestVal := array.get(maxRangesHighest, lastIndex)
+        highestIndex := lastIndex
+    //
+//
+
+
+//checking if there are more than 2 ranges to compare/ delete lines
+if array.size(maxRangesStart) >= 2  
+
+    int lastIndex = array.size(maxRangesStart) - 1
+    
+    //get the start and end shifts of the 2 ranges
+    int start2 = array.get(maxRangesStart, lastIndex)
+    int end2 = array.get(maxRangesEnd, lastIndex)
+
+    int start1 = array.get(maxRangesStart, highestIndex)
+    int end1 = array.get(maxRangesEnd, highestIndex)
+
+    //if highest in range 2 is lower than highest in range 1
+    if array.get(maxRangesHighest, lastIndex) < highestVal
+        [highest1, index1] = findHighestPrice(start1, end1)
+        [highest2, index2] = findHighestPrice(start2, end2)
+
+        //check if highest price in range 1 < highest price in range 2
+        if highest1 < highest2 
+
+            if highestStart != start1
+                latestBearLine := line.new(time[index2], highest2, time[index1], highest1, xloc = xloc.bar_time, extend = extend.none, color = bearishcolor, style = line.style_solid, width = 1)
+                bearLineCounter := bearLineCounter + 1
+                highestStart := start1
+            //
+
+            if highestStart == start1
+                
+                //to find the highest high from the start of trendline to current bar
+                [currHighest, currHighestIndex] = findHighest(index1, 0)
+
+                line.set_x1(latestBearLine, time[currHighestIndex])
+                line.set_y1(latestBearLine, currHighest)
+            //
+
+        //
+
+    //
+
+//
+
