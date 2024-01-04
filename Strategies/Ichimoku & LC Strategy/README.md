@@ -33,4 +33,5 @@ SL is based on Kernel AO Swing
 ## Its settings
 ![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/d8a51fa8-9ab2-4ee5-bc92-fc45525f94d0)
 ![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/44545a47-5e6b-4463-a10e-98b2b4c84729)
-![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/5922cd73-d22c-4c95-8b05-ae2e6b563615)
+![image](https://github.com/araamas/Pinescript-Scripts/assets/104917239/fe4c2d9a-b231-436b-90cc-b5cc70602071)
+
