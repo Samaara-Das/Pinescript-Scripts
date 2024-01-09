@@ -1,0 +1,564 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © SamaaraDas
+
+// @description
+// The strategy behind this is for trading the 2nd impulse in an Impulse-Correction-Impulse pattern.
+
+// These are the entry criterias of the trades:
+
+// 🟢 For a buy
+// There has to be a higher low in Kernel AO Swing  - The sign of the higher low resembles the 1st upward impulse and the downward correction. The lower low is the start of the 1st upward impulse. 
+//                                                    The higher low is the end of the correction and possibly the start of the 2nd impulse. We wait for a higher low to happen to trade the 2nd impulse.
+// Lagging line on shift 1 above Span B on shift 26 - Confirms the uptrend
+// Green LC label on shift 1                        - Confirms resumption of trend and start of 2nd impulse
+// Green Kernel Estimate line on shift 1            - Confirms resumption of trend and start of 2nd impulse (aggressive option)
+
+// 🔴 For a sell
+// There has to be a lower high in Kernel AO Swing  - The sign of the lower high resembles the 1st downward impulse and the upward correction. The higher high is the start of the 1st downward impulse. 
+//                                                    The lower high is the end of the correction and possibly the start of the 2nd impulse. We wait for a lower high to happen to trade the 2nd impulse.
+// Lagging line on shift 1 below Span B on shift 26 - This confirms the uptrend
+// Red LC label on shift 1                          - Confirms resumption of trend and start of 2nd impulse
+// Red Kernel Estimate line on shift 1              - Confirms resumption of trend and start of 2nd impulse (aggressive option)
+
+// All the entry criterias above are optional except the Kernel AO Swing entry criteria. That will apply along with all the entry criterias you choose. You can combine any of the above entry criterias to form an entry condition. 
+// Examples: If the Ichimoku criteria and LC criteria are selected, an entry will be taken if both the criterias (and also the Kernel AO Swing entry criteria) have been met. 
+// If all 3 criterias are selected, an entry will be taken if they (and also the Kernel AO Swing entry criteria) have been met.
+// If just 1 of those criterias is selected then an entry will be taken if that and the Kernel AO Swing entry criteria have been met.
+
+// Along with these criterias, you have 1 other condition which is a higher timeframe filter (HTF). This will take only buy trades if the latest trade on a higher timeframe is a buy and 
+// take only sell trades if the latest trade on a higher timeframe is a sell. 
+// If you select this, choose the higher timeframe that you want (it must be higher than the chart's current timeframe).
+
+// The entry criterias for the higher timeframe entry condition are the same as the entry criterias written above except that the Kernel AO Swing won't be part of them. 
+// You can combine any entry criteria to form an entry condition for higher timeframe entries.
+// So, if you have selected Ichimoku and Kernel conditions, a higher timeframe entry will be based on those.
+
+// The entry criterias for the higher timeframe are completely seperate from the lower timeframe entry criterias. 
+// You don't have to have the same entry criterias for the higher timeframe and the lower timeframe if you want to have different entry criterias for them.
+
+// Here are the exit conditions:
+// RR based TP
+// SL is based on the previous Kernel AO swing and not the latest
+
+
+//@version=5
+strategy("Ichimoku, LC & Kernel AO Swing Strategy", shorttitle = "Ichi, LC, Kernel", overlay=true, margin_long=100, margin_short=100, process_orders_on_close = true, initial_capital = 10000)
+
+import TradingView/ta/5
+import jdehorty/MLExtensions/2 as ml
+import jdehorty/KernelFunctions/2 as kernels
+// importing my indicator library
+import SamaaraDas/Indicators/1 as indicator
+
+// Strategy
+tpRatio = input.float(2, 'Tp Ratio', group = 'Strategy')
+useLtfIchi = input.bool(true, 'Use Ichimoku in entry? (for lower timeframe)', tooltip = 'If checked, this will apply to the entry condition.', group = 'Strategy')
+useLtfLabel = input.bool(true, 'Use LC label in entry? (for lower timeframe)', tooltip = 'If checked, this will apply to the entry condition.', group = 'Strategy')
+useLtfKernelLine = input.bool(false, 'Use kernel line in entry? (for lower timeframe)', tooltip = 'If checked, this will apply to the entry condition.', group = 'Strategy')
+useHtfFilter = input.bool(false, 'Show entries based on the HTF filter?', tooltip = 'If checked, the buy signals will be visible if the latest signal on a higher timeframe is a buy. If the latest signal on the higher timeframe is a sell, only the sells will be visible.', group = 'Strategy')
+htf = input.timeframe('240', 'Higher Timeframe', tooltip = 'This is the higher timeframe that the indicator will use for the HTF filter', group = 'Strategy')
+useHtfIchi = input.bool(true, 'Use Ichimoku in entry? (for higher timeframe)', tooltip = 'If checked, this will apply to the entry condition on the higher timeframe.', group = 'Strategy')
+useHtfLabel = input.bool(true, 'Use LC label in entry? (for higher timeframe)', tooltip = 'If checked, this will apply to the entry condition on the higher timeframe.', group = 'Strategy')
+useHtfKernelLine = input.bool(false, 'Use kernel line in entry? (for higher timeframe)', tooltip = 'If checked, this will apply to the entry condition on the higher timeframe.', group = 'Strategy')
+
+// Display
+// Add input options for the user to choose which levels to see
+showSL = input(true, "Show SL Level", group = 'Trade Display')
+showTP1 = input(true, "Show TP1 Level", group = 'Trade Display')
+showTP2 = input(true, "Show TP2 Level", group = 'Trade Display')
+showTP3 = input(true, "Show TP3 Level", group = 'Trade Display')
+
+showLabel = input.bool(false, 'Show LC labels? (for lower timeframe)', group = 'LC Display')
+showKernel = input.bool(false, 'Show Kernel line? (for lower timeframe)', group = 'LC Display')
+
+showTurning = input.bool(false, 'Show Turning line? (for lower timeframe)', group = 'Ichimoku Display')
+showStandard = input.bool(false, 'Show Standard line? (for lower timeframe)', group = 'Ichimoku Display')
+showLagging = input.bool(false, 'Show Lagging line? (for lower timeframe)', group = 'Ichimoku Display')
+showSpanA = input.bool(false, 'Show Span A? (for lower timeframe)', group = 'Ichimoku Display')
+showSpanB = input.bool(false, 'Show Span B? (for lower timeframe)', group = 'Ichimoku Display')
+showCloud = input.bool(false, 'Show Cloud? (for lower timeframe)', group = 'Ichimoku Display', tooltip = 'Show Span A and Show Span B have to be ticked for the cloud to show')
+
+// LC Settings
+volatilityFilter = input.bool(title="Use Volatility Filter", defval=true, tooltip="Whether to use the volatility filter.", group="LC Settings")
+maxBarsBack = input.int(title="Max Bars Back", defval=2000, group="LC Settings")
+useEmaFilter = input.bool(title="Use EMA Filter", defval=false, group="LC Settings", inline="ema")
+emaPeriod = input.int(title="Period", defval=200, minval=1, step=1, group="LC Settings", inline="ema", tooltip="The period of the EMA used for the EMA Filter.")
+
+//fast Kernel line inputs
+float kernelFastWeight = input.float(8, "Rel Weight", 0 , 50, step = 0.2, group = "Fast Kernel Settings (for Kernel AO Swing)")
+int kernelFastLookback = input.int(5, "Lookback",2 , 500, group = "Fast Kernel Settings (for Kernel AO Swing)")
+int kernelFastRegressionStart = input.int(25, "Regression Start",2 , 400, group = "Fast Kernel Settings (for Kernel AO Swing)")
+bool kernelFastSmooth = input.bool(false, "Smooth Line", inline = "Smooth", group = "Fast Kernel Settings (for Kernel AO Swing)")
+int kernelFastSmoothPeriod = input.int(4, "",2 , 200, inline = "Smooth", group = "Fast Kernel Settings (for Kernel AO Swing)")
+
+//slow Kernel line inputs
+float kernelSlowWeight = input.float(3, "Rel Weight", 0 , 5, step = 0.2, group = "Slow Kernel Settings (for Kernel AO Swing)")
+int kernelSlowLookback = input.int(34, "Lookback",2 , 500, group = "Slow Kernel Settings (for Kernel AO Swing)")
+int kernelSlowRegressionStart = input.int(120, "Regression Start",2 , 400, group = "Slow Kernel Settings (for Kernel AO Swing)")
+bool kernelSlowSmooth = input.bool(false, "Smooth Line", inline = "Smooth", group = "Slow Kernel Settings (for Kernel AO Swing)")
+int kernelSlowSmoothPeriod = input.int(40, "",2 , 200, inline = "Smooth", group = "Slow Kernel Settings (for Kernel AO Swing)")
+
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+// LC indicator
+// I've removed some unnecessary code from the LC indicator. That code wasn't needed for this indicator. So, I removed it. The functionality will still remain the same as the original LC indicator.
+// Most of the inputs have been removed. The default values for those inputs have been used. Only 4 inputs have been kept and are under the "LC Settings" group in the inputs.
+// While checking if the LC labels were correct, I found that 2 pale red LC labels didn't show but they showed up in the original LC indicator. I didn't find out why because this happened once and all the other LC labels were correct.
+
+
+c_green = color.new(#009988, 20)
+c_red = color.new(#CC3311, 20)
+
+type Settings
+    float source
+    int neighborsCount
+    int maxBarsBack
+    int featureCount
+    int colorCompression
+    bool showExits
+    bool useDynamicExits
+
+type Label
+    int long
+    int short
+    int neutral
+
+type FeatureArrays
+    array<float> f1
+    array<float> f2
+    array<float> f3
+    array<float> f4
+    array<float> f5
+
+type FeatureSeries
+    float f1
+    float f2
+    float f3
+    float f4
+    float f5
+
+type MLModel
+    int firstBarIndex
+    array<int> trainingLabels
+    int loopSize
+    float lastDistance
+    array<float> distancesArray
+    array<int> predictionsArray
+    int prediction
+
+type FilterSettings 
+    bool useVolatilityFilter
+    bool useRegimeFilter
+    bool useAdxFilter
+    float regimeThreshold
+    int adxThreshold
+
+type Filter
+    bool volatility
+    bool regime
+    bool adx 
+
+series_from(feature_string, _close, _high, _low, _hlc3, f_paramA, f_paramB) =>
+    switch feature_string
+        "RSI" => ml.n_rsi(_close, f_paramA, f_paramB)
+        "WT" => ml.n_wt(_hlc3, f_paramA, f_paramB)
+        "CCI" => ml.n_cci(_close, f_paramA, f_paramB)
+        "ADX" => ml.n_adx(_high, _low, _close, f_paramA)
+//
+
+get_lorentzian_distance(int i, int featureCount, FeatureSeries featureSeries, FeatureArrays featureArrays) =>
+    switch featureCount
+        5 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) + 
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) + 
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) + 
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i))) + 
+             math.log(1+math.abs(featureSeries.f5 - array.get(featureArrays.f5, i)))
+        4 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) +
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i)))
+        3 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i)))
+        2 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i)))
+//
+
+
+
+lc() =>
+    // Settings Object: General User-Defined Inputs
+    Settings settings = Settings.new(close,8,maxBarsBack,5,1,false,false)
+    
+    // Settings object for user-defined settings
+    FilterSettings filterSettings =FilterSettings.new(volatilityFilter,true,false,-0.1,20)
+
+    // Filter object for filtering the ML predictions
+    Filter filter =Filter.new(ml.filter_volatility(1, 10, filterSettings.useVolatilityFilter), ml.regime_filter(ohlc4, filterSettings.regimeThreshold, filterSettings.useRegimeFilter),ml.filter_adx(settings.source, 14, filterSettings.adxThreshold, filterSettings.useAdxFilter))
+
+    // Feature Variables: User-Defined Inputs for calculating Feature Series. 
+    f1_string = "RSI"
+    f1_paramA = 14
+    f1_paramB = 1
+    f2_string = "WT"
+    f2_paramA = 10
+    f2_paramB = 11
+    f3_string = "CCI"
+    f3_paramA = 20
+    f3_paramB = 1
+    f4_string = "ADX"
+    f4_paramA = 20
+    f4_paramB = 2
+    f5_string = "RSI"
+    f5_paramA = 9
+    f5_paramB = 1
+    // FeatureSeries Object: Calculated Feature Series based on Feature Variables
+    featureSeries = FeatureSeries.new(series_from(f1_string, close, high, low, hlc3, f1_paramA, f1_paramB), series_from(f2_string, close, high, low, hlc3, f2_paramA, f2_paramB), series_from(f3_string, close, high, low, hlc3, f3_paramA, f3_paramB), series_from(f4_string, close, high, low, hlc3, f4_paramA, f4_paramB), series_from(f5_string, close, high, low, hlc3, f5_paramA, f5_paramB)  )
+
+    // FeatureArrays Variables: Storage of Feature Series as Feature Arrays Optimized for ML
+    // Note: These arrays cannot be dynamically created within the FeatureArrays Object Initialization and thus must be set-up in advance.
+    var f1Array = array.new_float()
+    var f2Array = array.new_float()
+    var f3Array = array.new_float()
+    var f4Array = array.new_float()
+    var f5Array = array.new_float()
+    array.push(f1Array, featureSeries.f1)
+    array.push(f2Array, featureSeries.f2)
+    array.push(f3Array, featureSeries.f3)
+    array.push(f4Array, featureSeries.f4)
+    array.push(f5Array, featureSeries.f5)
+    // FeatureArrays Object: Storage of the calculated FeatureArrays into a single object
+    featureArrays = FeatureArrays.new(f1Array, f2Array, f3Array, f4Array, f5Array  )
+    // Label Object: Used for classifying historical data as training data for the ML Model
+    Label direction = Label.new(long=1, short=-1, neutral=0)
+    // Derived from General Settings
+    maxBarsBackIndex = last_bar_index >= settings.maxBarsBack ? last_bar_index - settings.maxBarsBack : 0
+    // EMA Settings 
+    eMa = ta.ema(close, emaPeriod)
+    isEmaUptrend = useEmaFilter ? close > eMa : true
+    isEmaDowntrend = useEmaFilter ? close < eMa : true
+    useSmaFilter = false
+    smaPeriod = 200
+    sMa = ta.sma(close, smaPeriod)
+    isSmaUptrend = useSmaFilter ? close > sMa : true
+    isSmaDowntrend = useSmaFilter ? close < sMa : true
+    // Nadaraya-Watson Kernel Regression Settings
+    useKernelFilter = true
+    showKernelEstimate = true
+    useKernelSmoothing = false
+    h = 8
+    r = 8
+    x = 25
+    lag = 2
+    // Display Settings
+    showBarColors = true
+    showBarPredictions = true
+    useAtrOffset = false
+    barPredictionsOffset = 0
+    // This model specializes specifically in predicting the direction of price action over the course of the next 4 bars. 
+    // To avoid complications with the ML model, this value is hardcoded to 4 bars but support for other training lengths may be added in the future.
+    src = settings.source
+    y_train_series = src[4] < src[0] ? direction.short : src[4] > src[0] ? direction.long : direction.neutral
+    var y_train_array = array.new_int(0)
+    // Variables used for ML Logic
+    var predictions = array.new_float(0)
+    var prediction = 0.
+    var signal = direction.neutral
+    var distances = array.new_float(0)
+
+    array.push(y_train_array, y_train_series)
+
+    lastDistance = -1.0
+    size = math.min(settings.maxBarsBack-1, array.size(y_train_array)-1)
+    sizeLoop = math.min(settings.maxBarsBack-1, size)
+
+    if bar_index >= maxBarsBackIndex //{ 
+        for i = 0 to sizeLoop //{
+            d = get_lorentzian_distance(i, settings.featureCount, featureSeries, featureArrays) 
+            if d >= lastDistance and i%4 //{
+                lastDistance := d            
+                array.push(distances, d)
+                array.push(predictions, math.round(array.get(y_train_array, i)))
+                if array.size(predictions) > settings.neighborsCount //{
+                    lastDistance := array.get(distances, math.round(settings.neighborsCount*3/4))
+                    array.shift(distances)
+                    array.shift(predictions)
+                //}
+            //}
+        //}
+        prediction := array.sum(predictions)
+    //}
+
+    // User Defined Filters: Used for adjusting the frequency of the ML Model's predictions
+    filter_all = filter.volatility and filter.regime and filter.adx
+    // Filtered Signal: The model's prediction of future price movement direction with user-defined filters applied
+    signal := prediction > 0 and filter_all ? direction.long : prediction < 0 and filter_all ? direction.short : nz(signal[1])
+    // Fractal Filters: Derived from relative appearances of signals in a given time series fractal/segment with a default length of 4 bars
+    isDifferentSignalType = ta.change(signal)
+    isBuySignal = signal == direction.long and isEmaUptrend and isSmaUptrend
+    isSellSignal = signal == direction.short and isEmaDowntrend and isSmaDowntrend
+    isNewBuySignal = isBuySignal and isDifferentSignalType
+    isNewSellSignal = isSellSignal and isDifferentSignalType
+    transparent = color.new(#000000, 100)
+    yhat1 = kernels.rationalQuadratic(settings.source, h, r, x)
+    yhat2 = kernels.gaussian(settings.source, h-lag, x)
+    kernelEstimate = yhat1
+    // Kernel Rates of Change
+    bool wasBearishRate = yhat1[2] > yhat1[1]
+    bool wasBullishRate = yhat1[2] < yhat1[1]
+    bool isBearishRate = yhat1[1] > yhat1
+    bool isBullishRate = yhat1[1] < yhat1
+    // Kernel Crossovers
+    bool isBullishSmooth = yhat2 >= yhat1
+    bool isBearishSmooth = yhat2 <= yhat1
+    // Kernel Colors
+    color colorByCross = isBullishSmooth ? c_green : c_red
+    color colorByRate = isBullishRate ? c_green : c_red
+    color plotColor = showKernelEstimate ? (useKernelSmoothing ? colorByCross : colorByRate) : transparent
+    // Bullish and Bearish Filters based on Kernel
+    isBullish = useKernelFilter ? (useKernelSmoothing ? isBullishSmooth : isBullishRate) : true
+    isBearish = useKernelFilter ? (useKernelSmoothing ? isBearishSmooth : isBearishRate) : true
+    // Entry Conditions: Booleans for ML Model Position Entries
+    startLongTrade = isNewBuySignal and isBullish and isEmaUptrend and isSmaUptrend
+    startShortTrade = isNewSellSignal and isBearish and isEmaDowntrend and isSmaDowntrend
+
+    [kernelEstimate, startLongTrade, startShortTrade, plotColor, prediction, time[1]]
+
+
+
+
+
+
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+[htfKernelEstimate, htfLongTrade, htfShortTrade, htfPlotColor, _, prevTime] = request.security(syminfo.tickerid, htf, lc())
+[kernelEstimate, longTrade, shortTrade, plotColor, prediction, _] = lc()
+plotshape(longTrade and showLabel ? low : na, 'Buy', shape.labelup, location.belowbar, color=ml.color_green(prediction), size=size.small, offset=0)
+plotshape(shortTrade and showLabel ? high : na, 'Sell', shape.labeldown, location.abovebar, ml.color_red(-prediction), size=size.small, offset=0)
+plot(showKernel ? kernelEstimate : na, color=plotColor, linewidth=2, title="Kernel Regression Estimate")
+
+// Kernel AO Swings
+
+// @function This returns the bar indexes of the previous high, current high, previous low, current low in that same order
+drawSwings(color lineColor, int lineWidth) =>
+
+    // for the bar index of the oscillator range (The start of the oscillator range)
+    var int negativeStart = int(na)
+    var int positiveStart = int(na)
+
+    // for the lowest/highest value in the current oscillator range
+    var float lowestVal = float(na)
+    var float highestVal = float(na)
+
+    // for the lowest/highest bar on the chart in the current oscillator range
+    var int lowestBar = int(na)
+    var int highestBar = int(na)
+
+    // for checking if we are drawing lines from the same point
+    var int uplineRange = 0
+    var int dwnlineRange = 0
+
+    // for knowing which range we are in (this is only for rsi)
+    var bool isBullRange = bool(na)
+
+    // variables for keeping a track of the last 2 highs/lows
+    var int previousLow = 0
+    var int previousLowHigh = 0
+    var int currentLow = 0
+
+    var int previousHigh = 0
+    var int previousHighLow = 0
+    var int currentHigh = 0
+
+    // To get the Kernel oscillator
+    float kernelFast = kernels.rationalQuadratic(close, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+    if kernelFastSmooth
+        kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
+
+    float kernelSlow = kernels.rationalQuadratic(close, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+    if kernelSlowSmooth
+        kernelSlow := ta.sma(kernelSlow, kernelSlowSmoothPeriod)
+
+    float osc = kernelFast - kernelSlow
+    
+    // to make sure it gets the bar index of when the range starts when the crossover condition cant find it
+    if (osc < 0 and na(osc[1])) 
+        negativeStart := bar_index
+        lowestVal := low
+    //
+
+    if (osc > 0 and na(osc[1])) 
+        positiveStart := bar_index
+        highestVal := high
+    //
+
+
+    // to record the start of the range
+    if osc < 0 and osc[1] > 0 
+        negativeStart := bar_index
+        lowestVal := low
+    //
+
+    if osc > 0 and osc[1] < 0 
+        positiveStart := bar_index
+        highestVal := high
+    //
+
+
+
+    // to find the highest/lowest bar and its price in the range
+    if (osc < 0 and na(osc[1]) == false) 
+        if low <= lowestVal
+            lowestVal := low
+            lowestBar := bar_index
+    //
+
+    if (osc > 0 and na(osc[1]) == false) 
+        if high >= highestVal
+            highestVal := high
+            highestBar := bar_index
+    //
+
+
+
+    // No lines are drawn because they do not need to be drawn 
+    // var line upline = line(na)
+    // var line dwnline = line(na)
+
+    // if negativeStart < positiveStart
+    //     if negativeStart != uplineRange
+    //         upline := line.new(time[bar_index - lowestBar], lowestVal, time[bar_index - highestBar], highestVal, color = lineColor, xloc = xloc.bar_time, width = lineWidth)
+    //         uplineRange := negativeStart
+    //     else
+    //         upline.set_x2(time[bar_index - highestBar])
+    //         upline.set_y2(highestVal)
+
+    // if positiveStart < negativeStart
+    //     if positiveStart != dwnlineRange
+    //         dwnline := line.new(time[bar_index - highestBar], highestVal, time[bar_index - lowestBar], lowestVal, color = lineColor, xloc = xloc.bar_time, width = lineWidth)
+    //         dwnlineRange := positiveStart
+    //     else
+    //         dwnline.set_x2(time[bar_index - lowestBar])
+    //         dwnline.set_y2(lowestVal)
+    //
+
+
+    // to get the latest 2 lows
+    currentLow := lowestBar
+    if lowestBar >= highestBar and previousLow != lowestBar[1] and previousLowHigh != highestBar 
+        previousLow := lowestBar[1]
+        previousLowHigh := highestBar
+    //
+
+    // to get the latest 2 highs
+    currentHigh := highestBar
+    if highestBar >= lowestBar and previousHigh != highestBar[1] and previousHighLow != lowestBar 
+        previousHigh := highestBar[1]
+        previousHighLow := lowestBar 
+    //
+
+
+    [previousHigh, currentHigh, previousLow, currentLow] // They're all bar indexes not shifts
+//
+
+[prevHighBar, currHighBar, prevLowBar, currLowBar] = drawSwings(color.aqua, 1)
+
+
+
+
+
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+// Ichimoku
+[turning, standard, spanA, spanB, lagging] = ta.ichimoku(9, 26, 52)
+[htfTurning, htfStandard, htfSpanA, htfSpanB, htfLagging] = request.security(syminfo.tickerid, htf, ta.ichimoku(9, 26, 52))
+
+plot(showTurning ? turning:na, color=#2962FF, title="Turning Line")
+plot(showStandard ? standard:na, color=#B71C1C, title="Standard Line")
+plot(showLagging ? close:na, offset = -25, color=#43A047, title="Lagging Span")
+p1 = plot(showSpanA? spanA:na, offset = 25, color=#009105, title="Span A")
+p2 = plot(showSpanB ? spanB:na, offset = 25, color=#800000, title="Span B")
+fill(p1, p2, color = showCloud ? spanA > spanB ? #05690a1a : #7908001a : na)
+
+
+
+
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+// Buy & Sell signals
+var htfBuyCondTime = 0 
+var htfSellCondTime = 0
+var float tp = 0.0
+var float sl = 0.0
+var buyPrevLowBar = 0
+var sellPrevHighBar = 0
+
+// for higher timeframe buy
+if ((htfLagging[1] > htfSpanB[26] and useHtfIchi) or not useHtfIchi) and ((htfLongTrade[1] and useHtfLabel) or not useHtfLabel) and ((htfPlotColor[1] == c_green and useHtfKernelLine) or not useHtfKernelLine)
+    htfBuyCondTime := prevTime
+
+// For lower timeframe buy 
+buyCond = ((lagging[1] > spanB[26] and useLtfIchi) or not useLtfIchi) and ((longTrade[1] and useLtfLabel) or not useLtfLabel) and ((plotColor[1] == c_green and useLtfKernelLine) or not useLtfKernelLine)
+
+// wait for a higher low to form regardless of the current leg is an upleg or downleg and check if this is the first buy after the downward leg
+if low[bar_index - currLowBar] > low[bar_index - prevLowBar] and prevLowBar != buyPrevLowBar
+    // take a buy if there is a lower timeframe buy signal and the HTF filter is not selected
+    // Or if there is a lower timeframe buy signal and the latest entry on the higher timeframe is a buy and the lower timeframe buy signal is after the higher timeframe entry and the HTF filter is selected
+    if ((buyCond and not useHtfFilter) or (buyCond and htfBuyCondTime >= htfSellCondTime and htfBuyCondTime != 0 and time[1] >= htfBuyCondTime and useHtfFilter)) and strategy.position_size[0] == 0
+        sl := low[bar_index - prevLowBar]
+        tp := close + (tpRatio * (close - sl))
+        strategy.entry('buy', strategy.long)
+        strategy.exit('exit buy', 'buy', limit=tp, stop=sl, comment_loss = 'sl hit', comment_profit = 'tp hit') // Exit at SL by Kernel AO Swing low or at TP with RR ratio
+        buyPrevLowBar := prevLowBar
+
+
+
+
+// For higher timeframe sell
+if ((htfLagging[1] < htfSpanB[26] and useHtfIchi) or not useHtfIchi) and ((htfShortTrade[1] and useHtfLabel) or not useHtfLabel) and ((htfPlotColor[1] == c_red and useHtfKernelLine) or not useHtfKernelLine)
+    htfSellCondTime := prevTime
+
+// For lower timeframe sell
+sellCond = ((lagging[1] < spanB[26] and useLtfIchi) or not useLtfIchi) and ((shortTrade[1] and useLtfLabel) or not useLtfLabel) and ((plotColor[1] == c_red and useLtfKernelLine) or not useLtfKernelLine)
+
+// wait for a lower high to form regardless of the current leg is a downleg or upleg
+if high[bar_index - currHighBar] < high[bar_index - prevHighBar] and prevHighBar != sellPrevHighBar
+    // take a sell if there is a lower timeframe sell signal and the HTF filter is not selected
+    // Or if there is a lower timeframe sell signal and the latest entry on the higher timeframe is a sell and the lower timeframe sell signal is after the higher timeframe entry and the HTF filter is selected
+    if ((sellCond and not useHtfFilter) or (sellCond and htfSellCondTime >= htfBuyCondTime and htfSellCondTime != 0 and time[1] >= htfSellCondTime and useHtfFilter)) and strategy.position_size[0] == 0
+        sl := high[bar_index - prevHighBar]
+        tp := close - (tpRatio * (sl - close))
+        strategy.entry('sell', strategy.short)
+        strategy.exit('exit sell', 'sell', limit=tp, stop=sl, comment_loss = 'sl hit', comment_profit = 'tp hit') // Exit at SL by Kernel AO Swing high or at TP with RR ratio
+        sellPrevHighBar := prevHighBar
+
+
+// Plotting the trades
+plot(strategy.position_size[0] != 0 ? tp:na, 'TP', color.lime, style = plot.style_linebr)
+plot(strategy.position_size[0] != 0 ? sl:na, 'SL', color.red, style = plot.style_linebr)
+plot(strategy.position_size[0] != 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1):na, 'Entry', color.blue, style = plot.style_linebr)
