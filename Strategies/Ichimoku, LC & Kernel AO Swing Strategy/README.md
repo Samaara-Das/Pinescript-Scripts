@@ -1,14 +1,14 @@
 The strategy behind this is for trading the 2nd impulse in an Impulse-Correction-Impulse pattern.
 
 ## These are the entry criterias of the trades:
-🟢 For a buy
+### 🟢 For a buy
 There has to be a higher low in Kernel AO Swing  - The sign of the higher low resembles the 1st upward impulse and the downward correction. The lower low is the start of the 1st upward impulse. 
                                                    The higher low is the end of the correction and possibly the start of the 2nd impulse. We wait for a higher low to happen to trade the 2nd impulse.
 Lagging line on shift 1 above Span B on shift 26 - Confirms the uptrend
 Green LC label on shift 1                        - Confirms resumption of trend and start of 2nd impulse
 Green Kernel Estimate line on shift 1            - Confirms resumption of trend and start of 2nd impulse (aggressive option)
 
-🔴 For a sell
+### 🔴 For a sell
 There has to be a lower high in Kernel AO Swing  - The sign of the lower high resembles the 1st downward impulse and the upward correction. The higher high is the start of the 1st downward impulse. 
                                                    The lower high is the end of the correction and possibly the start of the 2nd impulse. We wait for a lower high to happen to trade the 2nd impulse.
 Lagging line on shift 1 below Span B on shift 26 - This confirms the uptrend
