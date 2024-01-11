@@ -1,0 +1,175 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © SamaaraDas
+
+//@version=5
+strategy("Ichimoku & MA with Trailing Stop", shorttitle = 'Ichimoku, MA & Trailing stop', overlay=true, margin_long=100, margin_short=100, process_orders_on_close = true, initial_capital = 10000)
+
+import TradingView/ta/5
+
+tpRatio = input.float(1.5, 'TP Ratio', group = 'Strategy')
+useTrailing = input.bool(false, 'Use Trailing Stop?', group = 'Strategy')
+activationRatio = input.float(50, '% for Trailing Stop to activate', tooltip = 'The percentage that price should have reached towards the TP to activate the Trailing Stop.', group = 'Strategy') / 100
+
+// Inputs for calculating the SL and Trailing Stop
+n = input.int(title="Fractal Period", tooltip = 'This is used for calculating Fractals for the Stop Loss', defval=3, minval=2, group = 'Strategy')
+suprtrdPeriod = input.int(10, 'Supertrend ATR Period')
+suprtrdFactor = input.float(3, 'Supertrend Factor')
+
+// MA inputs
+fastMaPeriod = input.int(20, 'Fast MA Period', group = 'MA')
+slowMaPeriod = input.int(50, 'Slow MA Period', group = 'MA')
+source = input.source(close, 'MA Source', group = 'MA')
+showFastMa = input.bool(false, 'Show Fast MA?', group = 'MA')
+showSlowMa = input.bool(false, 'Show Slow MA?', group = 'MA')
+
+// Ichimoku inputs
+showTurning = input.bool(false, 'Show Turning line?', group = 'Ichimoku Display')
+showStandard = input.bool(false, 'Show Standard line?', group = 'Ichimoku Display')
+showLagging = input.bool(true, 'Show Lagging line?', group = 'Ichimoku Display')
+showSpanA = input.bool(false, 'Show Span A?', group = 'Ichimoku Display')
+showSpanB = input.bool(true, 'Show Span B?', group = 'Ichimoku Display')
+showCloud = input.bool(false, 'Show Cloud?', group = 'Ichimoku Display', tooltip = 'Show Span A and Show Span B have to be ticked for the cloud to show')
+
+// Ichimoku
+[turning, standard, spanA, spanB, lagging] = ta.ichimoku(9, 26, 52)
+shift = 26
+
+plot(showTurning ? turning:na, color=#2962FF, title="Turning Line")
+plot(showStandard ? standard:na, color=#B71C1C, title="Standard Line")
+plot(showLagging ? close:na, offset = -shift + 1, color=#43A047, title="Lagging Span")
+p1 = plot(showSpanA? spanA:na, offset = shift - 1, color=#009105, title="Span A")
+p2 = plot(showSpanB ? spanB:na, offset = shift - 1, color=#800000, title="Span B")
+fill(p1, p2, color = showCloud ? spanA > spanB ? #05690a1a : #7908001a : na)
+
+// MA
+fastMa = ta.ema(source, fastMaPeriod)
+slowMa = ta.ema(source, slowMaPeriod)
+
+plot(showFastMa ? fastMa:na, color=#ffa229, title="Fast MA")
+plot(showSlowMa ? slowMa:na, color=#b7331c, title="Slow MA")
+
+// Track Ichimoku crosses
+var ichiBullCross = 0
+if lagging[1] > spanB[51] and lagging[2] < spanB[52] // bull cross
+    ichiBullCross := bar_index - shift
+
+var ichiBearCross = 0
+if lagging[1] < spanB[51] and lagging[2] > spanB[52] // bear cross
+    ichiBearCross := bar_index - shift
+
+
+// Fractals
+bool upflagDownFrontier = true
+bool upflagUpFrontier0 = true
+bool upflagUpFrontier1 = true
+bool upflagUpFrontier2 = true
+bool upflagUpFrontier3 = true
+bool upflagUpFrontier4 = true
+
+for i = 1 to n
+    upflagDownFrontier := upflagDownFrontier and (high[n-i] < high[n])
+    upflagUpFrontier0 := upflagUpFrontier0 and (high[n+i] < high[n])
+    upflagUpFrontier1 := upflagUpFrontier1 and (high[n+1] <= high[n] and high[n+i + 1] < high[n])
+    upflagUpFrontier2 := upflagUpFrontier2 and (high[n+1] <= high[n] and high[n+2] <= high[n] and high[n+i + 2] < high[n])
+    upflagUpFrontier3 := upflagUpFrontier3 and (high[n+1] <= high[n] and high[n+2] <= high[n] and high[n+3] <= high[n] and high[n+i + 3] < high[n])
+    upflagUpFrontier4 := upflagUpFrontier4 and (high[n+1] <= high[n] and high[n+2] <= high[n] and high[n+3] <= high[n] and high[n+4] <= high[n] and high[n+i + 4] < high[n])
+flagUpFrontier = upflagUpFrontier0 or upflagUpFrontier1 or upflagUpFrontier2 or upflagUpFrontier3 or upflagUpFrontier4
+upFractal = (upflagDownFrontier and flagUpFrontier)
+
+bool downflagDownFrontier = true
+bool downflagUpFrontier0 = true
+bool downflagUpFrontier1 = true
+bool downflagUpFrontier2 = true
+bool downflagUpFrontier3 = true
+bool downflagUpFrontier4 = true
+
+for i = 1 to n
+    downflagDownFrontier := downflagDownFrontier and (low[n-i] > low[n])
+    downflagUpFrontier0 := downflagUpFrontier0 and (low[n+i] > low[n])
+    downflagUpFrontier1 := downflagUpFrontier1 and (low[n+1] >= low[n] and low[n+i + 1] > low[n])
+    downflagUpFrontier2 := downflagUpFrontier2 and (low[n+1] >= low[n] and low[n+2] >= low[n] and low[n+i + 2] > low[n])
+    downflagUpFrontier3 := downflagUpFrontier3 and (low[n+1] >= low[n] and low[n+2] >= low[n] and low[n+3] >= low[n] and low[n+i + 3] > low[n])
+    downflagUpFrontier4 := downflagUpFrontier4 and (low[n+1] >= low[n] and low[n+2] >= low[n] and low[n+3] >= low[n] and low[n+4] >= low[n] and low[n+i + 4] > low[n])
+flagDownFrontier = downflagUpFrontier0 or downflagUpFrontier1 or downflagUpFrontier2 or downflagUpFrontier3 or downflagUpFrontier4
+downFractal = (downflagDownFrontier and flagDownFrontier)
+
+var float currUpFractal = 0.0
+var float currDwnFractal = 0.0
+var float prevUpFractal = 0.0
+var float prevDwnFractal = 0.0
+
+if downFractal
+    prevDwnFractal := currDwnFractal
+    currDwnFractal := low[n]
+
+if upFractal
+    prevUpFractal := currUpFractal
+    currUpFractal := high[n]
+
+// Taking trades
+var float activationPrice = float(na)
+var bool isActivated = false
+var float trailingPrice = 0.0
+var float tp = 0.0
+var float sl = 0.0
+
+// sell if the latest ichimoku cross is a bear cross and we get a bearish MA cross
+if ichiBearCross > ichiBullCross and ta.crossunder(fastMa[1], slowMa[1]) and strategy.position_size[0] == 0 
+    isActivated := false
+    activationPrice := float(na)
+    sl := prevUpFractal > currUpFractal ? prevUpFractal : currUpFractal
+    tp := close - (tpRatio * (sl - close))
+    strategy.entry('sell', strategy.short)
+    strategy.exit('exit sell', 'sell', limit=tp, stop=sl, comment_loss = 'sl hit', comment_profit = 'tp hit') 
+
+// buy if the latest ichimoku cross is a bull cross and we get a bullish MA cross
+if ichiBullCross > ichiBearCross and ta.crossover(fastMa[1], slowMa[1]) and strategy.position_size[0] == 0 
+    isActivated := false
+    activationPrice := float(na)
+    sl := prevDwnFractal < currDwnFractal ? prevDwnFractal : currDwnFractal
+    tp := close + (tpRatio * (close - sl))
+    strategy.entry('buy', strategy.long)
+    strategy.exit('exit buy', 'buy', limit=tp, stop=sl, comment_loss = 'sl hit', comment_profit = 'tp hit') 
+
+
+// Trailing Stop
+float entryPrice = strategy.position_size[0] != 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1):na
+[supertrend, direction] = ta.supertrend(suprtrdFactor, suprtrdPeriod)
+
+// Check if the Trailing Stop has been activated
+if useTrailing and not isActivated
+    if strategy.position_size > 0 // for buy
+        activationPrice := entryPrice + (activationRatio * (tp - entryPrice))
+        if close >= activationPrice or high >= activationPrice
+            isActivated := true
+
+    if strategy.position_size < 0 // for sell
+        activationPrice := entryPrice - (activationRatio * (entryPrice - tp))
+        if close <= activationPrice or low <= activationPrice
+            isActivated := true
+            
+// If the Trailing Stop has been activated, update the SL to the trailing price and keep the TP the same
+if isActivated 
+    if strategy.position_size > 0 // for a buy
+        trailingPrice := math.max(trailingPrice[1], supertrend[1])
+        strategy.exit('exit buy', 'buy', limit = tp, stop=trailingPrice, comment='Trailing Stop hit') 
+
+    if strategy.position_size < 0 // for a sell
+        trailingPrice := math.min(trailingPrice[1] == 0.0 ? supertrend[1]:trailingPrice[1], supertrend[1])
+        strategy.exit('exit sell', 'sell', limit = tp, stop=trailingPrice, comment='Trailing Stop hit') 
+
+// If there was a trade running previously and it had a trailing stop, make the trailing stop 0 (to stop it from drawing lines after the trade has closed)
+if isActivated[1] and strategy.position_size[1] != 0 and strategy.position_size[0] == 0
+    trailingPrice := 0.0
+
+// Plotting the trades
+plot(strategy.position_size[0] != 0 ? tp:na, 'TP', color.lime, style = plot.style_linebr)
+plot(strategy.position_size[0] != 0 ? sl:na, 'SL', color.red, style = plot.style_linebr)
+plot(strategy.position_size[0] != 0 ? strategy.opentrades.entry_price(strategy.opentrades - 1):na, 'Entry', color.blue, style = plot.style_linebr)
+
+// Plot the trailing stop
+plot(trailingPrice == 0.0 ? na:trailingPrice, color=#8900e4, linewidth=2, title="Trailing Stop", style = plot.style_linebr)
+
+// Make a label that shows when a trailing stop gets activated
+if isActivated[0] and not isActivated[1]
+    label.new(bar_index, high, text = "Trailing Stop Activated", style = label.style_label_down, color = color.red, size = size.small)
