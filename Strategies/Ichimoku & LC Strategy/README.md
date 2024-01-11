@@ -25,6 +25,6 @@ The entry criterias for the higher timeframe are completely seperate from the lo
 You don't have to have the same entry criterias for the higher timeframe and the lower timeframe if you want to have different entry criterias for them.
 
 ## Here are the exit conditions:
-TP is based on ratio
-SL is based on Kernel AO Swing 
+- TP is based on ratio
+- SL is based on Kernel AO Swing 
 
