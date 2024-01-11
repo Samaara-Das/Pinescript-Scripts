@@ -1,13 +1,13 @@
 ## Entries:
 🟢 For a buy
-- Lagging line on shift 1 above Span B on shift 26 
-Green LC label on shift 1 
-Green Kernel Estimate line on shift 1
+- Lagging line on shift 1 above Span B on shift 26
+- Green LC label on shift 1 
+- Green Kernel Estimate line on shift 1
 
 🔴 For a sell
-Lagging line on shift 1 below Span B on shift 26 
-Red LC label on shift 1 
-Red Kernel Estimate line on shift 1
+- Lagging line on shift 1 below Span B on shift 26 
+- Red LC label on shift 1 
+- Red Kernel Estimate line on shift 1
 
 All the entry criterias above are optional. You can combine any of the above entry criterias to form an entry condition. 
 Examples: If the Ichimoku condition and LC criteria are selected, an entry will be taken if both the criterias have been met. 
