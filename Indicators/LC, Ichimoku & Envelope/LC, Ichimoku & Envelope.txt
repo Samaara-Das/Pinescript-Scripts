@@ -1,0 +1,439 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © SamaaraDas
+
+//@version=5
+indicator("LC, Ichimoku & Envelope", shorttitle = 'LC, Ichi & Env', overlay = true)
+
+import TradingView/ta/5
+import jdehorty/MLExtensions/2 as ml
+import jdehorty/KernelFunctions/2 as kernels
+
+// Display
+showEnvelope = input.bool(true, 'Show Envelope?', group = 'Display')
+showKernelEstimate = input.bool(true, "Show Kernel Estimate", group="Display")
+showLcLabel = input.bool(true, "Show LC Label", group="Display")
+
+showTurning = input.bool(false, 'Show Turning line? (for lower timeframe)', group = 'Ichimoku Display')
+showStandard = input.bool(false, 'Show Standard line? (for lower timeframe)', group = 'Ichimoku Display')
+showLagging = input.bool(true, 'Show Lagging line? (for lower timeframe)', group = 'Ichimoku Display')
+showSpanA = input.bool(false, 'Show Span A? (for lower timeframe)', group = 'Ichimoku Display')
+showSpanB = input.bool(true, 'Show Span B? (for lower timeframe)', group = 'Ichimoku Display')
+showCloud = input.bool(false, 'Show Cloud? (for lower timeframe)', group = 'Ichimoku Display', tooltip = 'Show Span A and Show Span B have to be ticked for the cloud to show')
+
+// LC
+kernelDefaultSource = input.source(title='Kernel Estimate Source', defval=close, group="LC General Settings", tooltip="Source of the input data")
+lcDefaultSource = input.source(title='LC Source', defval=close, group="LC General Settings", tooltip="Source of the input data")
+useKernelAsSource = input.bool(false, 'Use Kernel Estimate as LC Source?', group="LC General Settings", tooltip = "If this is checked, the Kernel Estimate will be used as LC's source otherwise the source chosen above will be used.")
+
+// Envelope Settings
+envelopeh = input.int(8, 'Lookback Window', tooltip='The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50', group='Envelope Settings')
+alpha = input.float(8., 'Relative Weighting', step=0.25, tooltip='Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Envelope will become identical to the Gaussian kernel. Recommended range: 0.25-25', group='Envelope Settings')
+x_0 = input.int(25, "Start Regression at Bar", tooltip='Bar index on which to start regression. The first bars of a chart are often highly volatile, and omission of these initial bars often leads to a better overall fit. Recommended range: 5-25', group='Envelope Settings')
+atr_length = input.int(60, 'ATR Length', minval=1, tooltip='The number of bars associated with the Average True Range (ATR).', group='Envelope Settings')
+nearFactor = input.float(1.5, 'Near ATR Factor', minval=0.5, step=0.25, tooltip='The factor by which to multiply the ATR to calculate the near bound of the envelope. Recommended range: 0.5-2.0', group='Envelope Settings')
+farFactor = input.float(8.0, 'Far ATR Factor', minval=1.0, step=0.25, tooltip='The factor by which to multiply the ATR to calculate the far bound of the envelope. Recommended range: 6.0-8.0', group='Envelope Settings')
+
+
+// LC indicator
+// Unneccessary comments have been removed
+// Anything which is not related to plotting the buy and sell labels has been removed
+
+type Settings
+    float source
+    int neighborsCount
+    int maxBarsBack
+    int featureCount
+    int colorCompression
+    bool showExits
+    bool useDynamicExits
+
+type Label
+    int long
+    int short
+    int neutral
+
+type FeatureArrays
+    array<float> f1
+    array<float> f2
+    array<float> f3
+    array<float> f4
+    array<float> f5
+
+type FeatureSeries
+    float f1
+    float f2
+    float f3
+    float f4
+    float f5
+
+type MLModel
+    int firstBarIndex
+    array<int> trainingLabels
+    int loopSize
+    float lastDistance
+    array<float> distancesArray
+    array<int> predictionsArray
+    int prediction
+
+type FilterSettings 
+    bool useVolatilityFilter
+    bool useRegimeFilter
+    bool useAdxFilter
+    float regimeThreshold
+    int adxThreshold
+
+type Filter
+    bool volatility
+    bool regime
+    bool adx 
+
+series_from(feature_string, _close, _high, _low, _hlc3, f_paramA, f_paramB) =>
+    switch feature_string
+        "RSI" => ml.n_rsi(_close, f_paramA, f_paramB)
+        "WT" => ml.n_wt(_hlc3, f_paramA, f_paramB)
+        "CCI" => ml.n_cci(_close, f_paramA, f_paramB)
+        "ADX" => ml.n_adx(_high, _low, _close, f_paramA)
+//
+
+get_lorentzian_distance(int i, int featureCount, FeatureSeries featureSeries, FeatureArrays featureArrays) =>
+    switch featureCount
+        5 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) + 
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) + 
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) + 
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i))) + 
+             math.log(1+math.abs(featureSeries.f5 - array.get(featureArrays.f5, i)))
+        4 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i))) +
+             math.log(1+math.abs(featureSeries.f4 - array.get(featureArrays.f4, i)))
+        3 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i))) +
+             math.log(1+math.abs(featureSeries.f3 - array.get(featureArrays.f3, i)))
+        2 => math.log(1+math.abs(featureSeries.f1 - array.get(featureArrays.f1, i))) +
+             math.log(1+math.abs(featureSeries.f2 - array.get(featureArrays.f2, i)))
+//
+
+// ================  
+// ==== Inputs ==== 
+// ================ 
+
+// Nadaraya-Watson Kernel Regression Settings
+useKernelFilter = input.bool(true, "Trade with Kernel", group="LC Kernel Settings", inline="kernel")
+useKernelSmoothing = input.bool(false, "Enhance Kernel Smoothing", tooltip="Uses a crossover based mechanism to smoothen kernel color changes. This often results in less color transitions overall and may result in more ML entry signals being generated.", inline='1', group='Kernel Settings')
+h = input.int(8, 'Lookback Window', minval=3, tooltip='The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50', group="LC Kernel Settings", inline="kernel")
+r = input.float(8., 'Relative Weighting', step=0.25, tooltip='Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25', group="LC Kernel Settings", inline="kernel")
+x = input.int(25, "Regression Level", tooltip='Bar index on which to start regression. Controls how tightly fit the kernel estimate is to the data. Smaller values are a tighter fit. Larger values are a looser fit. Recommended range: 2-25', group="LC Kernel Settings", inline="kernel")
+lag = input.int(2, "Lag", tooltip="Lag for crossover detection. Lower values result in earlier crossovers. Recommended range: 1-2", inline='1', group='Kernel Settings')
+
+yhat1 = kernels.rationalQuadratic(kernelDefaultSource, h, r, x)
+
+// Settings Object: General User-Defined Inputs
+Settings settings = 
+ Settings.new(
+   useKernelAsSource ? yhat1:lcDefaultSource,
+   input.int(title='Neighbors Count', defval=8, group="LC General Settings", minval=1, maxval=100, step=1, tooltip="Number of neighbors to consider"),
+   input.int(title="Max Bars Back", defval=2000, group="LC General Settings"),
+   input.int(title="Feature Count", defval=5, group="LC Feature Engineering", minval=2, maxval=5, tooltip="Number of features to use for ML predictions."),
+   input.int(title="Color Compression", defval=1, group="LC General Settings", minval=1, maxval=10, tooltip="Compression factor for adjusting the intensity of the color scale."),
+   input.bool(title="Show Default Exits", defval=false, group="LC General Settings", tooltip="Default exits occur exactly 4 bars after an entry signal. This corresponds to the predefined length of a trade during the model's training process.", inline="exits"),
+   input.bool(title="Use Dynamic Exits", defval=false, group="LC General Settings", tooltip="Dynamic exits attempt to let profits ride by dynamically adjusting the exit threshold based on kernel regression logic.", inline="exits")
+ )
+   
+// Settings object for user-defined settings
+FilterSettings filterSettings =
+ FilterSettings.new(
+   input.bool(title="Use Volatility Filter", defval=true, tooltip="Whether to use the volatility filter.", group="LC Filters"),
+   input.bool(title="Use Regime Filter", defval=true, group="LC Filters", inline="regime"),
+   input.bool(title="Use ADX Filter", defval=false, group="LC Filters", inline="adx"),
+   input.float(title="Threshold", defval=-0.1, minval=-10, maxval=10, step=0.1, tooltip="Whether to use the trend detection filter. Threshold for detecting Trending/Ranging markets.", group="LC Filters", inline="regime"),
+   input.int(title="Threshold", defval=20, minval=0, maxval=100, step=1, tooltip="Whether to use the ADX filter. Threshold for detecting Trending/Ranging markets.", group="LC Filters", inline="adx")
+ )
+
+// Filter object for filtering the ML predictions
+Filter filter =
+ Filter.new(
+   ml.filter_volatility(1, 10, filterSettings.useVolatilityFilter), 
+   ml.regime_filter(ohlc4, filterSettings.regimeThreshold, filterSettings.useRegimeFilter),
+   ml.filter_adx(settings.source, 14, filterSettings.adxThreshold, filterSettings.useAdxFilter)
+  )
+
+// Feature Variables: User-Defined Inputs for calculating Feature Series. 
+f1_string = input.string(title="Feature 1", options=["RSI", "WT", "CCI", "ADX"], defval="RSI", inline = "01", tooltip="The first feature to use for ML predictions.", group="LC Feature Engineering")
+f1_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 1.", defval=14, inline = "02", group="LC Feature Engineering")
+f1_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 2 (if applicable).", defval=1, inline = "02", group="LC Feature Engineering")
+f2_string = input.string(title="Feature 2", options=["RSI", "WT", "CCI", "ADX"], defval="WT", inline = "03", tooltip="The second feature to use for ML predictions.", group="LC Feature Engineering")
+f2_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 2.", defval=10, inline = "04", group="LC Feature Engineering")
+f2_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 2 (if applicable).", defval=11, inline = "04", group="LC Feature Engineering")
+f3_string = input.string(title="Feature 3", options=["RSI", "WT", "CCI", "ADX"], defval="CCI", inline = "05", tooltip="The third feature to use for ML predictions.", group="LC Feature Engineering")
+f3_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 3.", defval=20, inline = "06", group="LC Feature Engineering")
+f3_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 3 (if applicable).", defval=1, inline = "06", group="LC Feature Engineering")
+f4_string = input.string(title="Feature 4", options=["RSI", "WT", "CCI", "ADX"], defval="ADX", inline = "07", tooltip="The fourth feature to use for ML predictions.", group="LC Feature Engineering")
+f4_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 4.", defval=20, inline = "08", group="LC Feature Engineering")
+f4_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 4 (if applicable).", defval=2, inline = "08", group="LC Feature Engineering")
+f5_string = input.string(title="Feature 5", options=["RSI", "WT", "CCI", "ADX"], defval="RSI", inline = "09", tooltip="The fifth feature to use for ML predictions.", group="LC Feature Engineering")
+f5_paramA = input.int(title="Parameter A", tooltip="The primary parameter of feature 5.", defval=9, inline = "10", group="LC Feature Engineering")
+f5_paramB = input.int(title="Parameter B", tooltip="The secondary parameter of feature 5 (if applicable).", defval=1, inline = "10", group="LC Feature Engineering")
+
+// FeatureSeries Object: Calculated Feature Series based on Feature Variables
+featureSeries = 
+ FeatureSeries.new(
+   series_from(f1_string, close, high, low, hlc3, f1_paramA, f1_paramB), // f1
+   series_from(f2_string, close, high, low, hlc3, f2_paramA, f2_paramB), // f2 
+   series_from(f3_string, close, high, low, hlc3, f3_paramA, f3_paramB), // f3
+   series_from(f4_string, close, high, low, hlc3, f4_paramA, f4_paramB), // f4
+   series_from(f5_string, close, high, low, hlc3, f5_paramA, f5_paramB)  // f5
+ )
+
+// FeatureArrays Variables: Storage of Feature Series as Feature Arrays Optimized for ML
+// Note: These arrays cannot be dynamically created within the FeatureArrays Object Initialization and thus must be set-up in advance.
+var f1Array = array.new_float()
+var f2Array = array.new_float()
+var f3Array = array.new_float()
+var f4Array = array.new_float()
+var f5Array = array.new_float()
+array.push(f1Array, featureSeries.f1)
+array.push(f2Array, featureSeries.f2)
+array.push(f3Array, featureSeries.f3)
+array.push(f4Array, featureSeries.f4)
+array.push(f5Array, featureSeries.f5)
+
+// FeatureArrays Object: Storage of the calculated FeatureArrays into a single object
+featureArrays = 
+ FeatureArrays.new(
+  f1Array, // f1
+  f2Array, // f2
+  f3Array, // f3
+  f4Array, // f4
+  f5Array  // f5
+ )
+
+// Label Object: Used for classifying historical data as training data for the ML Model
+Label direction = 
+ Label.new(
+   long=1, 
+   short=-1, 
+   neutral=0
+  )
+
+// Derived from General Settings
+maxBarsBackIndex = last_bar_index >= settings.maxBarsBack ? last_bar_index - settings.maxBarsBack : 0
+
+// EMA Settings 
+useEmaFilter = input.bool(title="Use EMA Filter", defval=false, group="LC Filters", inline="ema")
+emaPeriod = input.int(title="Period", defval=200, minval=1, step=1, group="LC Filters", inline="ema", tooltip="The period of the EMA used for the EMA Filter.")
+isEmaUptrend = useEmaFilter ? close > ta.ema(close, emaPeriod) : true
+isEmaDowntrend = useEmaFilter ? close < ta.ema(close, emaPeriod) : true
+useSmaFilter = input.bool(title="Use SMA Filter", defval=false, group="LC Filters", inline="sma")
+smaPeriod = input.int(title="Period", defval=200, minval=1, step=1, group="LC Filters", inline="sma", tooltip="The period of the SMA used for the SMA Filter.")
+isSmaUptrend = useSmaFilter ? close > ta.sma(close, smaPeriod) : true
+isSmaDowntrend = useSmaFilter ? close < ta.sma(close, smaPeriod) : true
+
+// =================================
+// ==== Next Bar Classification ====
+// =================================
+
+src = settings.source
+y_train_series = src[4] < src[0] ? direction.short : src[4] > src[0] ? direction.long : direction.neutral
+var y_train_array = array.new_int(0)
+
+// Variables used for ML Logic
+var predictions = array.new_float(0)
+var prediction = 0.
+var signal = direction.neutral
+var distances = array.new_float(0)
+
+array.push(y_train_array, y_train_series)
+
+// =========================
+// ====  Core ML Logic  ====
+// =========================
+
+lastDistance = -1.0
+size = math.min(settings.maxBarsBack-1, array.size(y_train_array)-1)
+sizeLoop = math.min(settings.maxBarsBack-1, size)
+
+if bar_index >= maxBarsBackIndex //{
+    for i = 0 to sizeLoop //{
+        d = get_lorentzian_distance(i, settings.featureCount, featureSeries, featureArrays) 
+        if d >= lastDistance and i%4 //{
+            lastDistance := d            
+            array.push(distances, d)
+            array.push(predictions, math.round(array.get(y_train_array, i)))
+            if array.size(predictions) > settings.neighborsCount //{
+                lastDistance := array.get(distances, math.round(settings.neighborsCount*3/4))
+                array.shift(distances)
+                array.shift(predictions)
+            //}
+        //}
+    //}
+    prediction := array.sum(predictions)
+//}
+
+// ============================
+// ==== Prediction Filters ====
+// ============================
+
+// User Defined Filters: Used for adjusting the frequency of the ML Model's predictions
+filter_all = filter.volatility and filter.regime and filter.adx
+
+// Filtered Signal: The model's prediction of future price movement direction with user-defined filters applied
+signal := prediction > 0 and filter_all ? direction.long : prediction < 0 and filter_all ? direction.short : nz(signal[1])
+
+// Fractal Filters: Derived from relative appearances of signals in a given time series fractal/segment with a default length of 4 bars
+isDifferentSignalType = ta.change(signal)
+isBuySignal = signal == direction.long and isEmaUptrend and isSmaUptrend
+isSellSignal = signal == direction.short and isEmaDowntrend and isSmaDowntrend
+isNewBuySignal = isBuySignal and isDifferentSignalType
+isNewSellSignal = isSellSignal and isDifferentSignalType
+
+c_green = color.new(#009988, 20)
+c_red = color.new(#CC3311, 20)
+transparent = color.new(#000000, 100)
+yhat2 = kernels.gaussian(settings.source, h-lag, x)
+kernelEstimate = yhat1
+// Kernel Rates of Change
+bool isBearishRate = yhat1[1] > yhat1
+bool isBullishRate = yhat1[1] < yhat1
+// Kernel Crossovers
+bool isBullishSmooth = yhat2 >= yhat1
+bool isBearishSmooth = yhat2 <= yhat1
+// Kernel Colors
+color colorByCross = isBullishSmooth ? c_green : c_red
+color colorByRate = isBullishRate ? c_green : c_red
+color plotColor = showKernelEstimate ? (useKernelSmoothing ? colorByCross : colorByRate) : transparent
+plot(kernelEstimate, color=plotColor, linewidth=2, title="Kernel Regression Estimate")
+// Bullish and Bearish Filters based on Kernel
+isBullish = useKernelFilter ? (useKernelSmoothing ? isBullishSmooth : isBullishRate) : true
+isBearish = useKernelFilter ? (useKernelSmoothing ? isBearishSmooth : isBearishRate) : true
+
+// ===========================
+// ==== Entries and Exits ====
+// ===========================
+
+// Entry Conditions: Booleans for ML Model Position Entries
+startLongTrade = isNewBuySignal and isBullish and isEmaUptrend and isSmaUptrend
+startShortTrade = isNewSellSignal and isBearish and isEmaDowntrend and isSmaDowntrend
+
+// =========================
+// ==== Plotting Labels ====
+// =========================
+
+// Note: These will not repaint once the most recent bar has fully closed. By default, signals appear over the last closed bar; to override this behavior set offset=0.
+plotshape(startLongTrade and showLcLabel ? low : na, 'Buy', shape.labelup, location.belowbar, color=ml.color_green(prediction), size=size.small, offset=0)
+plotshape(startShortTrade and showLcLabel ? high : na, 'Sell', shape.labeldown, location.abovebar, ml.color_red(-prediction), size=size.small, offset=0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Envelope
+
+getBounds(_atr, _nearFactor, _farFactor, _yhat) => 
+    _upper_far = _yhat + _farFactor*_atr
+    _upper_near = _yhat + _nearFactor*_atr
+    _lower_near = _yhat - _nearFactor*_atr
+    _lower_far = _yhat - _farFactor*_atr
+    _upper_avg = (_upper_far + _upper_near) / 2
+    _lower_avg = (_lower_far + _lower_near) / 2 
+    [_upper_near, _upper_far, _upper_avg, _lower_near, _lower_far, _lower_avg]
+//
+
+kernel_atr(length, _high, _low, _close) =>
+    trueRange = na(_high[1])? _high-_low : math.max(math.max(_high - _low, math.abs(_high - _close[1])), math.abs(_low - _close[1]))
+    ta.rma(trueRange, length)
+//
+
+// Envelope Calculation Function
+envelopeCalculation() =>
+    yhat_close = kernels.rationalQuadratic(close, envelopeh, alpha, x_0)
+    yhat_high = kernels.rationalQuadratic(high, envelopeh, alpha, x_0)
+    yhat_low = kernels.rationalQuadratic(low, envelopeh, alpha, x_0)
+    yhat = yhat_close
+    ktr = kernel_atr(atr_length, yhat_high, yhat_low, yhat_close)
+    [upper_near, upper_far, upper_avg, lower_near, lower_far, lower_avg] = getBounds(ktr, nearFactor, farFactor, yhat_close)
+    [yhat_close, upper_near, upper_far, upper_avg, lower_near, lower_far, lower_avg]
+//
+
+upper_far = 0.0
+upper_avg = 0.0
+upper_near = 0.0
+yhat_close = 0.0
+lower_near = 0.0
+lower_avg = 0.0
+lower_far = 0.0
+
+if showEnvelope
+    [_yhat_close, _upper_near, _upper_far, _upper_avg, _lower_near, _lower_far, _lower_avg] = envelopeCalculation()
+    yhat_close := _yhat_close
+    upper_near := _upper_near
+    upper_far := _upper_far
+    upper_avg := _upper_avg
+    lower_near := _lower_near
+    lower_far := _lower_far
+    lower_avg := _lower_avg
+
+// Colors
+red_far = color.new(color.red, 60)
+red_near = color.new(color.red, 80)
+yhat_green = color.new(color.green, 50)
+yhat_red = color.new(color.red, 50)
+green_near = color.new(color.green, 80)
+green_far = color.new(color.green, 60)
+
+// Plots
+p_upper_far = plot(upper_far, color=red_far, title='Upper Boundary: Far')
+p_upper_avg = plot(upper_avg, color=red_near,title='Upper Boundary: Average')
+p_upper_near = plot(upper_near, color=red_near, title='Upper Boundary: Near') 
+p_yhat = plot(yhat_close, color=yhat_close > yhat_close[1] ? yhat_green : yhat_red, linewidth=2, title='Nadaraya-Watson Estimation')
+p_lower_near = plot(lower_near, color=green_near, title='Lower Boundary: Near')
+p_lower_avg = plot(lower_avg, color=green_near, title='Lower Boundary: Average') 
+p_lower_far = plot(lower_far, color=green_far, title='Lower Boundary: Far')
+
+// Fills
+fill(p_upper_far, p_upper_avg, color=red_far, title='Upper Boundary: Farmost Region')
+fill(p_upper_near, p_upper_avg, color=red_near, title='Upper Boundary: Nearmost Region')
+fill(p_lower_near, p_lower_avg, color=green_near, title='Lower Boundary: Nearmost Region')
+fill(p_lower_far, p_lower_avg, color=green_far, title='Lower Boundary: Farmost Region')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Ichimoku
+
+[turning, standard, spanA, spanB, lagging] = ta.ichimoku(9, 26, 52)
+
+plot(showTurning ? turning:na, color=#2962FF, title="Turning Line")
+plot(showStandard ? standard:na, color=#B71C1C, title="Standard Line")
+plot(showLagging ? close:na, offset = -25, color=#43A047, title="Lagging Span")
+p1 = plot(showSpanA? spanA:na, offset = 25, color=#009105, title="Span A")
+p2 = plot(showSpanB ? spanB:na, offset = 25, color=#800000, title="Span B")
+fill(p1, p2, color = showCloud ? spanA > spanB ? #05690a1a : #7908001a : na)
