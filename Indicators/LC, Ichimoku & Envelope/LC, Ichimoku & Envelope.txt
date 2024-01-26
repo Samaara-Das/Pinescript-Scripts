@@ -10,20 +10,19 @@ import jdehorty/KernelFunctions/2 as kernels
 
 // Display
 showEnvelope = input.bool(true, 'Show Envelope?', group = 'Display')
-showKernelEstimate = input.bool(true, "Show Kernel Estimate", group="Display")
+showKernelEstimate = input.bool(false, "Show Kernel Estimate", group="Display")
 showLcLabel = input.bool(true, "Show LC Label", group="Display")
 
-showTurning = input.bool(false, 'Show Turning line? (for lower timeframe)', group = 'Ichimoku Display')
-showStandard = input.bool(false, 'Show Standard line? (for lower timeframe)', group = 'Ichimoku Display')
-showLagging = input.bool(true, 'Show Lagging line? (for lower timeframe)', group = 'Ichimoku Display')
-showSpanA = input.bool(false, 'Show Span A? (for lower timeframe)', group = 'Ichimoku Display')
-showSpanB = input.bool(true, 'Show Span B? (for lower timeframe)', group = 'Ichimoku Display')
-showCloud = input.bool(false, 'Show Cloud? (for lower timeframe)', group = 'Ichimoku Display', tooltip = 'Show Span A and Show Span B have to be ticked for the cloud to show')
+showTurning = input.bool(false, 'Show Turning line?', group = 'Ichimoku Display')
+showStandard = input.bool(false, 'Show Standard line?', group = 'Ichimoku Display')
+showLagging = input.bool(false, 'Show Lagging line?', group = 'Ichimoku Display')
+showSpanA = input.bool(false, 'Show Span A?', group = 'Ichimoku Display')
+showSpanB = input.bool(false, 'Show Span B?', group = 'Ichimoku Display')
+showCloud = input.bool(false, 'Show Cloud?', group = 'Ichimoku Display', tooltip = 'Show Span A and Show Span B have to be ticked for the cloud to show')
 
 // LC
-kernelDefaultSource = input.source(title='Kernel Estimate Source', defval=close, group="LC General Settings", tooltip="Source of the input data")
 lcDefaultSource = input.source(title='LC Source', defval=close, group="LC General Settings", tooltip="Source of the input data")
-useKernelAsSource = input.bool(false, 'Use Kernel Estimate as LC Source?', group="LC General Settings", tooltip = "If this is checked, the Kernel Estimate will be used as LC's source otherwise the source chosen above will be used.")
+useKernelAsSource = input.bool(false, 'Use Nadaraya Watson as LC Source?', group="LC General Settings", tooltip = "If this is checked, the Nadaraya Watson line which is part of the Envelope indicator will be used as LC's source otherwise the source chosen above will be used.")
 
 // Envelope Settings
 envelopeh = input.int(8, 'Lookback Window', tooltip='The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50', group='Envelope Settings')
@@ -32,6 +31,94 @@ x_0 = input.int(25, "Start Regression at Bar", tooltip='Bar index on which to st
 atr_length = input.int(60, 'ATR Length', minval=1, tooltip='The number of bars associated with the Average True Range (ATR).', group='Envelope Settings')
 nearFactor = input.float(1.5, 'Near ATR Factor', minval=0.5, step=0.25, tooltip='The factor by which to multiply the ATR to calculate the near bound of the envelope. Recommended range: 0.5-2.0', group='Envelope Settings')
 farFactor = input.float(8.0, 'Far ATR Factor', minval=1.0, step=0.25, tooltip='The factor by which to multiply the ATR to calculate the far bound of the envelope. Recommended range: 6.0-8.0', group='Envelope Settings')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Envelope
+
+getBounds(_atr, _nearFactor, _farFactor, _yhat) => 
+    _upper_far = _yhat + _farFactor*_atr
+    _upper_near = _yhat + _nearFactor*_atr
+    _lower_near = _yhat - _nearFactor*_atr
+    _lower_far = _yhat - _farFactor*_atr
+    _upper_avg = (_upper_far + _upper_near) / 2
+    _lower_avg = (_lower_far + _lower_near) / 2 
+    [_upper_near, _upper_far, _upper_avg, _lower_near, _lower_far, _lower_avg]
+//
+
+kernel_atr(length, _high, _low, _close) =>
+    trueRange = na(_high[1])? _high-_low : math.max(math.max(_high - _low, math.abs(_high - _close[1])), math.abs(_low - _close[1]))
+    ta.rma(trueRange, length)
+//
+
+// Envelope Calculations
+yhat_close = kernels.rationalQuadratic(close, envelopeh, alpha, x_0)
+yhat_high = kernels.rationalQuadratic(high, envelopeh, alpha, x_0)
+yhat_low = kernels.rationalQuadratic(low, envelopeh, alpha, x_0)
+yhat = yhat_close
+ktr = kernel_atr(atr_length, yhat_high, yhat_low, yhat_close)
+[upper_near, upper_far, upper_avg, lower_near, lower_far, lower_avg] = getBounds(ktr, nearFactor, farFactor, yhat_close)
+
+// Colors
+red_far = color.new(color.red, 60)
+red_near = color.new(color.red, 80)
+yhat_green = color.new(color.green, 50)
+yhat_red = color.new(color.red, 50)
+green_near = color.new(color.green, 80)
+green_far = color.new(color.green, 60)
+
+// Plots
+p_upper_far = plot(showEnvelope ? upper_far:float(na), color=red_far, title='Upper Boundary: Far')
+p_upper_avg = plot(showEnvelope ? upper_avg:float(na), color=red_near,title='Upper Boundary: Average')
+p_upper_near = plot(showEnvelope ? upper_near:float(na), color=red_near, title='Upper Boundary: Near') 
+p_yhat = plot(showEnvelope ? yhat_close:float(na), color=yhat_close > yhat_close[1] ? yhat_green : yhat_red, linewidth=2, title='Nadaraya-Watson Estimation')
+p_lower_near = plot(showEnvelope ? lower_near:float(na), color=green_near, title='Lower Boundary: Near')
+p_lower_avg = plot(showEnvelope ? lower_avg:float(na), color=green_near, title='Lower Boundary: Average') 
+p_lower_far = plot(showEnvelope ? lower_far:float(na), color=green_far, title='Lower Boundary: Far')
+
+// Fills
+fill(p_upper_far, p_upper_avg, color=showEnvelope ? red_far:#00000000, title='Upper Boundary: Farmost Region')
+fill(p_upper_near, p_upper_avg, color=showEnvelope ? red_near:#00000000, title='Upper Boundary: Nearmost Region')
+fill(p_lower_near, p_lower_avg, color=showEnvelope ? green_near:#00000000, title='Lower Boundary: Nearmost Region')
+fill(p_lower_far, p_lower_avg, color=showEnvelope ? green_far:#00000000, title='Lower Boundary: Farmost Region')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // LC indicator
@@ -117,20 +204,10 @@ get_lorentzian_distance(int i, int featureCount, FeatureSeries featureSeries, Fe
 // ==== Inputs ==== 
 // ================ 
 
-// Nadaraya-Watson Kernel Regression Settings
-useKernelFilter = input.bool(true, "Trade with Kernel", group="LC Kernel Settings", inline="kernel")
-useKernelSmoothing = input.bool(false, "Enhance Kernel Smoothing", tooltip="Uses a crossover based mechanism to smoothen kernel color changes. This often results in less color transitions overall and may result in more ML entry signals being generated.", inline='1', group='Kernel Settings')
-h = input.int(8, 'Lookback Window', minval=3, tooltip='The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50', group="LC Kernel Settings", inline="kernel")
-r = input.float(8., 'Relative Weighting', step=0.25, tooltip='Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25', group="LC Kernel Settings", inline="kernel")
-x = input.int(25, "Regression Level", tooltip='Bar index on which to start regression. Controls how tightly fit the kernel estimate is to the data. Smaller values are a tighter fit. Larger values are a looser fit. Recommended range: 2-25', group="LC Kernel Settings", inline="kernel")
-lag = input.int(2, "Lag", tooltip="Lag for crossover detection. Lower values result in earlier crossovers. Recommended range: 1-2", inline='1', group='Kernel Settings')
-
-yhat1 = kernels.rationalQuadratic(kernelDefaultSource, h, r, x)
-
 // Settings Object: General User-Defined Inputs
 Settings settings = 
  Settings.new(
-   useKernelAsSource ? yhat1:lcDefaultSource,
+   useKernelAsSource ? yhat_close: lcDefaultSource,
    input.int(title='Neighbors Count', defval=8, group="LC General Settings", minval=1, maxval=100, step=1, tooltip="Number of neighbors to consider"),
    input.int(title="Max Bars Back", defval=2000, group="LC General Settings"),
    input.int(title="Feature Count", defval=5, group="LC Feature Engineering", minval=2, maxval=5, tooltip="Number of features to use for ML predictions."),
@@ -228,6 +305,15 @@ smaPeriod = input.int(title="Period", defval=200, minval=1, step=1, group="LC Fi
 isSmaUptrend = useSmaFilter ? close > ta.sma(close, smaPeriod) : true
 isSmaDowntrend = useSmaFilter ? close < ta.sma(close, smaPeriod) : true
 
+// Nadaraya-Watson Kernel Regression Settings
+useKernelFilter = input.bool(true, "Trade with Kernel", group="LC Kernel Settings", inline="kernel")
+useKernelSmoothing = input.bool(false, "Enhance Kernel Smoothing", tooltip="Uses a crossover based mechanism to smoothen kernel color changes. This often results in less color transitions overall and may result in more ML entry signals being generated.", inline='1', group='Kernel Settings')
+h = input.int(8, 'Lookback Window', minval=3, tooltip='The number of bars used for the estimation. This is a sliding value that represents the most recent historical bars. Recommended range: 3-50', group="LC Kernel Settings", inline="kernel")
+r = input.float(8., 'Relative Weighting', step=0.25, tooltip='Relative weighting of time frames. As this value approaches zero, the longer time frames will exert more influence on the estimation. As this value approaches infinity, the behavior of the Rational Quadratic Kernel will become identical to the Gaussian kernel. Recommended range: 0.25-25', group="LC Kernel Settings", inline="kernel")
+x = input.int(25, "Regression Level", tooltip='Bar index on which to start regression. Controls how tightly fit the kernel estimate is to the data. Smaller values are a tighter fit. Larger values are a looser fit. Recommended range: 2-25', group="LC Kernel Settings", inline="kernel")
+lag = input.int(2, "Lag", tooltip="Lag for crossover detection. Lower values result in earlier crossovers. Recommended range: 1-2", inline='1', group='Kernel Settings')
+
+
 // =================================
 // ==== Next Bar Classification ====
 // =================================
@@ -289,6 +375,7 @@ isNewSellSignal = isSellSignal and isDifferentSignalType
 c_green = color.new(#009988, 20)
 c_red = color.new(#CC3311, 20)
 transparent = color.new(#000000, 100)
+yhat1 = kernels.rationalQuadratic(settings.source, h, r, x)
 yhat2 = kernels.gaussian(settings.source, h-lag, x)
 kernelEstimate = yhat1
 // Kernel Rates of Change
@@ -328,91 +415,6 @@ plotshape(startShortTrade and showLcLabel ? high : na, 'Sell', shape.labeldown, 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Envelope
-
-getBounds(_atr, _nearFactor, _farFactor, _yhat) => 
-    _upper_far = _yhat + _farFactor*_atr
-    _upper_near = _yhat + _nearFactor*_atr
-    _lower_near = _yhat - _nearFactor*_atr
-    _lower_far = _yhat - _farFactor*_atr
-    _upper_avg = (_upper_far + _upper_near) / 2
-    _lower_avg = (_lower_far + _lower_near) / 2 
-    [_upper_near, _upper_far, _upper_avg, _lower_near, _lower_far, _lower_avg]
-//
-
-kernel_atr(length, _high, _low, _close) =>
-    trueRange = na(_high[1])? _high-_low : math.max(math.max(_high - _low, math.abs(_high - _close[1])), math.abs(_low - _close[1]))
-    ta.rma(trueRange, length)
-//
-
-// Envelope Calculation Function
-envelopeCalculation() =>
-    yhat_close = kernels.rationalQuadratic(close, envelopeh, alpha, x_0)
-    yhat_high = kernels.rationalQuadratic(high, envelopeh, alpha, x_0)
-    yhat_low = kernels.rationalQuadratic(low, envelopeh, alpha, x_0)
-    yhat = yhat_close
-    ktr = kernel_atr(atr_length, yhat_high, yhat_low, yhat_close)
-    [upper_near, upper_far, upper_avg, lower_near, lower_far, lower_avg] = getBounds(ktr, nearFactor, farFactor, yhat_close)
-    [yhat_close, upper_near, upper_far, upper_avg, lower_near, lower_far, lower_avg]
-//
-
-upper_far = 0.0
-upper_avg = 0.0
-upper_near = 0.0
-yhat_close = 0.0
-lower_near = 0.0
-lower_avg = 0.0
-lower_far = 0.0
-
-if showEnvelope
-    [_yhat_close, _upper_near, _upper_far, _upper_avg, _lower_near, _lower_far, _lower_avg] = envelopeCalculation()
-    yhat_close := _yhat_close
-    upper_near := _upper_near
-    upper_far := _upper_far
-    upper_avg := _upper_avg
-    lower_near := _lower_near
-    lower_far := _lower_far
-    lower_avg := _lower_avg
-
-// Colors
-red_far = color.new(color.red, 60)
-red_near = color.new(color.red, 80)
-yhat_green = color.new(color.green, 50)
-yhat_red = color.new(color.red, 50)
-green_near = color.new(color.green, 80)
-green_far = color.new(color.green, 60)
-
-// Plots
-p_upper_far = plot(upper_far, color=red_far, title='Upper Boundary: Far')
-p_upper_avg = plot(upper_avg, color=red_near,title='Upper Boundary: Average')
-p_upper_near = plot(upper_near, color=red_near, title='Upper Boundary: Near') 
-p_yhat = plot(yhat_close, color=yhat_close > yhat_close[1] ? yhat_green : yhat_red, linewidth=2, title='Nadaraya-Watson Estimation')
-p_lower_near = plot(lower_near, color=green_near, title='Lower Boundary: Near')
-p_lower_avg = plot(lower_avg, color=green_near, title='Lower Boundary: Average') 
-p_lower_far = plot(lower_far, color=green_far, title='Lower Boundary: Far')
-
-// Fills
-fill(p_upper_far, p_upper_avg, color=red_far, title='Upper Boundary: Farmost Region')
-fill(p_upper_near, p_upper_avg, color=red_near, title='Upper Boundary: Nearmost Region')
-fill(p_lower_near, p_lower_avg, color=green_near, title='Lower Boundary: Nearmost Region')
-fill(p_lower_far, p_lower_avg, color=green_far, title='Lower Boundary: Farmost Region')
 
 
 
