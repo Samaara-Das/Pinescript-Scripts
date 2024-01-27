@@ -1,0 +1,2 @@
+## A brief description
+Kernel AO Oscillator is our own custom indicator and is basically the Awesome Oscillator redeveloped using Kernel Regressions. Instead of using 2 Moving Averages for the oscillator's calculation, 2 Kernel Regressions are used. This has its own fast and slow Kernel lines which use the oscillator in its calculations.
