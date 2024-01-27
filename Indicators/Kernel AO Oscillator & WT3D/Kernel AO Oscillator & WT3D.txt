@@ -1,0 +1,468 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © SamaaraDas
+
+
+//@version=5
+indicator("Kernel AO + WT3D", overlay = false, format = format.price, max_bars_back = 5000, max_lines_count = 500, precision = 5)
+
+
+import jdehorty/KernelFunctions/2 as kernels
+
+// general
+showKernelAo = input.bool(true, 'Show Kernel?', group = 'General')
+showWT = input.bool(true, 'Show WaveTrend 3D?', group = 'General')
+width = input(2, 'Kernel AO Line Width', group = 'General')
+showFast = input.bool(true, 'Show Kernel AO Fast Kernel?', group = 'General')
+showSlow = input.bool(true, 'Show Kernel AO Slow Kernel?', group = 'General')
+
+//user Input for the fast Kernel line
+string kernelFastType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Fast Kernel (For Kernel AO)" )
+float kernelFastWeight = input.float(8, "Rel Weight", 0 , 50, step = 0.2, group = "Fast Kernel (For Kernel AO)")
+int kernelFastLookback = input.int(5, "Lookback",2 , 500, group = "Fast Kernel (For Kernel AO)")
+int kernelFastRegressionStart = input.int(25, "Regression Start",2 , 400, group = "Fast Kernel (For Kernel AO)")
+bool kernelFastSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Fast Kernel (For Kernel AO)")
+int kernelFastSmoothPeriod = input.int(4, "",2 , 200, inline = "Smooth", group = "Fast Kernel (For Kernel AO)")
+
+//user Input for the slow Kernel line
+string kernelSlowType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Slow Kernel (For Kernel AO)" )
+float kernelSlowWeight = input.float(3, "Rel Weight", 0 , 5, step = 0.2, group = "Slow Kernel (For Kernel AO)")
+int kernelSlowLookback = input.int(34, "Lookback",2 , 500, group = "Slow Kernel (For Kernel AO)")
+int kernelSlowRegressionStart = input.int(120, "Regression Start",2 , 400, group = "Slow Kernel (For Kernel AO)")
+bool kernelSlowSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Slow Kernel (For Kernel AO)")
+int kernelSlowSmoothPeriod = input.int(40, "",2 , 200, inline = "Smooth", group = "Slow Kernel (For Kernel AO)")
+
+//fast Kernel line
+float kernelFast = 0.0
+color kernelFastColor = color(na)
+float kernelSlow = 0.0
+color kernelSlowColor = color(na)
+
+if showKernelAo
+    kernelFast := switch kernelFastType
+        "Rational Quadratic" => kernels.rationalQuadratic(close, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+        "Gaussian" => kernels.gaussian(close, kernelFastLookback, kernelFastRegressionStart)
+
+    if kernelFastSmooth
+        kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
+        
+    kernelFastRising = ta.rising(kernelFast, 1)
+    kernelFastColor := kernelFastRising ? #00d107 : #fa1f1f
+
+    //slow Kernel line
+    kernelSlow := switch kernelSlowType
+        "Rational Quadratic" => kernels.rationalQuadratic(close, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+        "Gaussian" => kernels.gaussian(close, kernelSlowLookback, kernelSlowRegressionStart)
+
+    if kernelSlowSmooth
+        kernelSlow := ta.sma(kernelSlow, kernelSlowSmoothPeriod)
+
+    kernelSlowRising = ta.rising(kernelSlow, 1)
+    kernelSlowColor := kernelSlowRising ? #00d107 : #fa1f1f
+
+osc = kernelFast - kernelSlow
+diff = osc - osc[1]
+plot(showKernelAo ? osc:na, title="Kernel AO", color = diff <= 0 ? #cf0f49 : #5d0995, style=plot.style_columns)
+
+if showKernelAo
+    kernelFast := kernels.rationalQuadratic(osc, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+    kernelSlow := kernels.rationalQuadratic(osc, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+
+plot(showFast and showKernelAo ? kernelFast:na, title="Fast Kernel", color=kernelFastColor, linewidth = width)
+plot(showSlow and showKernelAo ? kernelSlow:na, title="Slow Kernel", color=kernelSlowColor, linewidth = width)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ================
+// ==== Inputs ====
+// ================
+
+// Signal Settings
+src = input.source(close, title="Source", group="Signal Settings (For WT3D)", inline='00')
+useMirror = input.bool(false, "Use Mirror", group="Signal Settings (For WT3D)", inline='00', tooltip="Displays the input series as a symmetrical, three-dimensional waveform useful for pattern identification and cycle-related analysis.")
+useEma = input.bool(false, "Use EMA", group="Signal Settings (For WT3D)", inline='ema')
+emaLength = input.int(3, minval=1, title="Length", tooltip="The number of bars used to calculate the EMA smoothing.", group="Signal Settings (For WT3D)", inline='ema')
+useCog = input.bool(false, "Use CoG", tooltip="Use the center of gravity of the price distribution as the signal.", group="Signal Settings (For WT3D)", inline="smoothing")
+cogLength = input.int(6, minval=1, title="Length", tooltip="Add CoG smoothing to the signal", group="Signal Settings (For WT3D)", inline="smoothing")
+oscillatorLookback = input.int(20, "Lookback", minval=2, tooltip="The number of bars to use for signal smoothing. This lookback is scaled so that multiple frequencies can be examined concurrently.", group="Signal Settings (For WT3D)", inline="osc")
+quadraticMeanLength = input.int(50, "Quadratic Mean", minval=2, tooltip="The Quadratic Mean is the square root of the average of the squares of the values. It is used in the normalization of the price's rate of change.", group="Signal Settings (For WT3D)", inline="osc")
+src := useEma ? ta.ema(src, emaLength) : src 
+src := useCog ? ta.cog(src, cogLength) : src
+speedToEmphasize = input.string('Slow', 'Speed to Emphasize', options=['Slow', 'Normal', 'Fast', 'None'], tooltip='Length to emphasize. This is like a timeframe within a timeframe.', inline="emphasis", group="Signal Settings (For WT3D)")
+emphasisWidth = input.int(2, "Width", tooltip="Width of the emphasized line.", inline="emphasis", group="Signal Settings (For WT3D)")
+useKernelMA = input.bool(false, "Display Kernel Moving Average", group="Signal Settings (For WT3D)", tooltip="Display the Kernel Moving Average of the signal. This is a smoothed version of the signal that is more robust to noise.", inline="kernel")
+useKernelEmphasis = input.bool(false, "Display Kernel Signal", group="Signal Settings (For WT3D)", tooltip="Display the Kernel Estimator for the emphasized line. This is a smoothed version of the emphasized line that is more robust to noise.", inline="kernel")
+
+// Oscillator Settings
+offset = input.int(0, "Oscillator Separation Distance", group="Oscillators (For WT3D)", tooltip="Separates the signal from the source by the specified number of bars. Useful for examining an oscillator in isolation and directly comparing to other timeframes.", inline="toggleOsc")
+showOsc = input.bool(true, "Show Oscillator Lines", group="Oscillators (For WT3D)", inline="toggleOsc")
+showOsc := showOsc
+f_length = input.float(0.75, "Fast Length:", step=0.05, tooltip="Length scale factor for the fast oscillator.", inline="fast", group="Oscillators (For WT3D)")
+f_smoothing = input.float(0.45, "Smoothing:", step=0.05, tooltip="Smoothing scale factor for the fast oscillator.", inline="fast", group="Oscillators (For WT3D)")
+n_length = input.float(1.0, "Normal Length:", step=0.05, tooltip="Length scale factor for the normal oscillator.", inline="normal", group="Oscillators (For WT3D)")
+n_smoothing = input.float(1.0, "Smoothing:", step=0.05, tooltip="Smoothing scale factor for the normal frequency.", inline="normal", group="Oscillators (For WT3D)")
+s_length = input.float(1.75, "Slow Length:", step=0.05, tooltip="Length scale factor for the slow oscillator.", inline="slow", group="Oscillators (For WT3D)")
+s_smoothing = input.float(2.5, "Smoothing:", step=0.05, tooltip="Smoothing scale factor for the slow frequency.", inline="slow", group="Oscillators (For WT3D)")
+
+// Divergence Detection
+divThreshold = input.int(30, "Divergence Distance", minval=1, tooltip="The amount of bars for the divergence to be considered significant.", group="Divergence Detection (For WT3D)", inline="divergence")
+sizePercent = input.int(40, "Percent Size", tooltip="How big the current wave should be relative to the previous wave. A smaller waves immediately following a larger wave is often a trigger wave for a divergence.", group="Divergence Detection (For WT3D)", inline="divergence")
+
+// Overbought/Oversold Zones (Reversal Zones)
+showObOs = input.bool(false, "Show OB/OS Zones", tooltip="Show the overbought/oversold zones for the normal-speed oscillator. These zones are useful for identifying potential reversal points since price will only exceed the ±0.5 level ~25% of the time.", group="Overbought/Oversold Zones (For WT3D)", inline="zones")
+invertObOsColors = input.bool(false, "Invert Colors", tooltip="Changes the colors of the overbought/oversold regions to be the inverse.", group="Overbought/Oversold Zones (For WT3D)", inline="zones")
+ob1 = input.float(0.5, "Overbought Primary", minval=0, maxval=1, step=0.05, group="Overbought/Oversold Zones (For WT3D)", inline="ob")
+ob2 = input.float(0.75, "Overbought Secondary", minval=0, maxval=1, step=0.05, group="Overbought/Oversold Zones (For WT3D)", inline="ob")
+os1 = input.float(-0.5, "Oversold Primary", minval=-1, maxval=0, step=0.05, group="Overbought/Oversold Zones (For WT3D)", inline="os")
+os2 = input.float(-0.75, "Oversold Secondary", minval=-1, maxval=0, step=0.05, group="Overbought/Oversold Zones (For WT3D)", inline="os")
+
+// Transparencies and Gradients
+areaBackgroundTrans = input.float(128., "Background Area Transparency Factor", minval=0., step=1, tooltip="Transparency factor for the background area.", group="Transparencies and Gradients (For WT3D)")
+areaForegroundTrans = input.float(64., "Foreground Area Transparency Factor", minval=0., step=1, tooltip="Transparency factor for the foreground area.", group="Transparencies and Gradients (For WT3D)")
+lineBackgroundTrans = input.float(2.6, "Background Line Transparency Factor", minval=0., step=1, tooltip="Transparency factor for the background line.", group="Transparencies and Gradients (For WT3D)")
+lineForegroundTrans = input.float(2., "Foreground Line Transparency Factor", minval=0., step=1, tooltip="Transparency factor for the foreground line.", group="Transparencies and Gradients (For WT3D)")
+customTransparency = input.int(30, 'Custom Transparency', minval=0, maxval=100, step=5, tooltip="Transparency of the custom colors.", group="Transparencies and Gradients (For WT3D)")
+maxStepsForGradient = input.int(8, 'Total Gradient Steps', minval=2, maxval=256, tooltip='The maximum amount of steps supported for a gradient calculation is 256.', group="Transparencies and Gradients (For WT3D)")
+
+// The defaults are colors that Google uses for its Data Science libraries (e.g. TensorFlow). They are considered to be colorblind-safe. 
+var color fastBullishColor = input.color(color.new(#009988, 30), 'Fast Bullish Color', group="Colors (For WT3D)", inline="fast")
+var color normalBullishColor = input.color(color.new(#009988, 60), 'Normal Bullish Color', group="Colors (For WT3D)", inline="normal")
+var color slowBullishColor = input.color(color.new(#009988, 70), 'Slow Bullish Color', group="Colors (For WT3D)", inline="slow")
+var color fastBearishColor = input.color(color.new(#CC3311, 30), 'Fast Bearish Color', group="Colors (For WT3D)", inline="fast")
+var color normalBearishColor = input.color(color.new(#CC3311, 60), 'Normal Bearish Color', group="Colors (For WT3D)", inline="normal")
+var color slowBearishColor = input.color(color.new(#CC3311, 70), 'Slow Bearish Color', group="Colors (For WT3D)", inline="slow")
+var color c_bullish = input.color(#009988, "Bullish Divergence Signals", group="Colors (For WT3D)", inline="divergence")
+var color c_bearish = input.color(#CC3311, "Bearish Divergence Signals", group="Colors (For WT3D)", inline="divergence")
+
+lineBackgroundTrans := lineBackgroundTrans * customTransparency
+areaBackgroundTrans := areaBackgroundTrans * customTransparency
+lineForegroundTrans := lineForegroundTrans * customTransparency
+areaForegroundTrans := areaForegroundTrans * customTransparency
+
+areaFastTrans = areaBackgroundTrans
+lineFastTrans = lineBackgroundTrans
+areaNormalTrans = areaBackgroundTrans
+lineNormalTrans = lineBackgroundTrans
+areaSlowTrans = areaForegroundTrans
+lineSlowTrans = lineForegroundTrans
+
+switch speedToEmphasize
+    "Slow" =>
+        areaFastTrans := areaBackgroundTrans
+        lineFastTrans := lineBackgroundTrans
+        areaNormalTrans := areaBackgroundTrans
+        lineNormalTrans := lineBackgroundTrans
+        areaSlowTrans := areaForegroundTrans
+        lineSlowTrans := lineForegroundTrans
+    "Normal" =>
+        areaFastTrans := areaBackgroundTrans
+        lineFastTrans := lineBackgroundTrans
+        areaNormalTrans := areaForegroundTrans
+        lineNormalTrans := lineForegroundTrans
+        areaSlowTrans := areaBackgroundTrans
+        lineSlowTrans := lineBackgroundTrans
+    "Fast" =>
+        areaFastTrans := areaForegroundTrans
+        lineFastTrans := lineForegroundTrans
+        areaNormalTrans := areaBackgroundTrans
+        lineNormalTrans := lineBackgroundTrans
+        areaSlowTrans := areaBackgroundTrans
+        lineSlowTrans := lineBackgroundTrans
+    "None" =>
+        areaFastTrans := areaBackgroundTrans
+        lineFastTrans := lineBackgroundTrans
+        areaNormalTrans := areaBackgroundTrans
+        lineNormalTrans := lineBackgroundTrans
+        areaSlowTrans := areaBackgroundTrans
+        lineSlowTrans := lineBackgroundTrans
+
+// =================================
+// ==== Color Helper Functions =====
+// =================================
+
+getPlotColor(signal, bullColor, bearColor) =>
+    signal >= 0.0 ? bullColor : bearColor
+
+getAreaColor(signal, useMomentum, bullColor, bearColor) =>
+    if useMomentum
+        ta.rising(signal, 1) ? bullColor : bearColor
+    else
+        signal >= 0.0 ? bullColor : bearColor
+
+getColorGradientFromSteps(_source, _center, _steps, weakColor, strongColor) =>
+    var float _qtyAdvDec = 0.
+    var float _maxSteps = math.max(1, _steps)
+    bool _xUp = ta.crossover(_source, _center)
+    bool _xDn = ta.crossunder(_source, _center)
+    float _chg = ta.change(_source)
+    bool _up = _chg > 0
+    bool _dn = _chg < 0
+    bool _srcBull = _source > _center
+    bool _srcBear = _source < _center
+    _qtyAdvDec := _srcBull ? _xUp ? 1 : _up ? math.min(_maxSteps, _qtyAdvDec + 1) : _dn ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec : _srcBear ? _xDn ? 1 : _dn ? math.min(_maxSteps, _qtyAdvDec + 1) : _up ? math.max(1, _qtyAdvDec - 1) : _qtyAdvDec : _qtyAdvDec      
+    color colorGradient = color.from_gradient(_qtyAdvDec, 1, _maxSteps, weakColor, strongColor)
+    colorGradient
+
+getColorGradientFromSource(series, _min, _max, weakColor, strongColor) =>
+    var float baseLineSeries = _min + (_max - _min) / 2
+    color colorGradient = series >= baseLineSeries ? color.from_gradient(value=series, bottom_value=baseLineSeries, top_value=_max, bottom_color=weakColor, top_color=strongColor) : color.from_gradient(series, _min, baseLineSeries, strongColor, weakColor)
+    colorGradient
+
+// ================================
+// ==== Main Helper Functions =====
+// ================================
+
+normalizeDeriv(_src, _quadraticMeanLength) =>
+    float derivative = _src - _src[2]
+    quadraticMean = math.sqrt(nz(math.sum(math.pow(derivative, 2), _quadraticMeanLength) / _quadraticMeanLength))
+    derivative/quadraticMean
+
+tanh(series float _src) =>
+    -1 + 2/(1 + math.exp(-2*_src))
+
+dualPoleFilter(float _src, float _lookback) =>
+    float _omega = -99 * math.pi / (70 * _lookback)
+    float _alpha = math.exp(_omega)
+    float _beta = -math.pow(_alpha, 2)
+    float _gamma = math.cos(_omega) * 2 * _alpha
+    float _delta = 1 - _gamma - _beta
+    float _slidingAvg = 0.5 * (_src + nz(_src[1], _src))
+    float _filter = na
+    _filter := (_delta*_slidingAvg) + _gamma*nz(_filter[1]) + _beta*nz(_filter[2])
+    _filter
+
+getOscillator(float src, float smoothingFrequency, int quadraticMeanLength) =>   
+    nDeriv = normalizeDeriv(src, quadraticMeanLength)
+    hyperbolicTangent = tanh(nDeriv)
+    result = dualPoleFilter(hyperbolicTangent, smoothingFrequency)
+
+// =================================
+// ==== Oscillator Calculations ====
+// =================================
+
+// Fast Oscillator + Mirror
+offsetFast = offset
+f_lookback = f_smoothing * oscillatorLookback
+signalFast = getOscillator(src, f_lookback, quadraticMeanLength)
+seriesFast = f_length*signalFast+offsetFast
+seriesFastMirror = useMirror ? -seriesFast + 2*offsetFast : na
+
+// Normal Oscillator + Mirror
+offsetNormal = 0
+n_lookback = n_smoothing * oscillatorLookback
+signalNormal = getOscillator(src, n_lookback, quadraticMeanLength)
+seriesNormal = n_length*signalNormal+offsetNormal
+seriesNormalMirror = useMirror ? -seriesNormal + 2*offsetNormal : na
+
+// Slow Oscillator + Mirror
+offsetSlow = -offset
+s_lookback = s_smoothing * oscillatorLookback
+signalSlow = getOscillator(src, s_lookback, quadraticMeanLength)
+seriesSlow = s_length*signalSlow+offsetSlow
+seriesSlowMirror = useMirror ? -seriesSlow + 2*offsetSlow : na
+
+// =====================================
+// ==== Color Gradient Calculations ====
+// =====================================
+
+// Fast Color Gradients (Areas and Lines)
+fastBaseColor = getPlotColor(signalFast, fastBullishColor, fastBearishColor)
+fastBaseColorInverse = getPlotColor(signalFast, fastBearishColor, fastBullishColor)
+fastAreaGradientFromSource = getColorGradientFromSource(seriesFast, -1.+offsetFast, 1+offsetFast, color.new(fastBaseColor, areaFastTrans), fastBaseColor)
+fastAreaGradientFromSteps = getColorGradientFromSteps(seriesFast, offsetFast, maxStepsForGradient, color.new(fastBaseColor, areaFastTrans), fastBaseColor)
+fastLineGradientFromSource = getColorGradientFromSource(seriesFast, -1+offsetFast, 1+offsetFast, color.new(fastBaseColor, lineFastTrans), fastBaseColor)
+fastLineGradientFromSteps = getColorGradientFromSteps(seriesFast, offsetFast, maxStepsForGradient, color.new(fastBaseColor, lineFastTrans), fastBaseColor)
+fastAreaGradientFromSourceInverse = getColorGradientFromSource(seriesFast, -1.+offsetFast, 1+offsetFast, color.new(fastBaseColorInverse, areaFastTrans), fastBaseColorInverse)
+fastAreaGradientFromStepsInverse = getColorGradientFromSteps(seriesFast, offsetFast, maxStepsForGradient, color.new(fastBaseColorInverse, areaFastTrans), fastBaseColorInverse)
+
+// Normal Color Gradients (Areas and Lines)
+normalBaseColor = getPlotColor(signalNormal, normalBullishColor, normalBearishColor)
+normalBaseColorInverse = getPlotColor(signalNormal, normalBearishColor, normalBullishColor)
+normalAreaGradientFromSource = getColorGradientFromSource(seriesNormal, -1.+offsetNormal, 1.+offsetNormal, color.new(normalBaseColor, areaNormalTrans), normalBaseColor)
+normalAreaGradientFromSteps = getColorGradientFromSteps(seriesNormal, offsetNormal, maxStepsForGradient, color.new(normalBaseColor, areaNormalTrans), normalBaseColor)
+normalLineGradientFromSource = getColorGradientFromSource(seriesNormal, -1+offsetNormal, 1+offsetNormal, color.new(normalBaseColor, lineNormalTrans), normalBaseColor)
+normalLineGradientFromSteps = getColorGradientFromSteps(seriesNormal, offsetNormal, maxStepsForGradient, color.new(normalBaseColor, lineNormalTrans), normalBaseColor)
+normalAreaGradientFromSourceInverse = getColorGradientFromSource(seriesNormal, -1.+offsetNormal, 1.+offsetNormal, color.new(normalBaseColorInverse, areaNormalTrans), normalBaseColorInverse)
+normalAreaGradientFromStepsInverse = getColorGradientFromSteps(seriesNormal, offsetNormal, maxStepsForGradient, color.new(normalBaseColorInverse, areaNormalTrans), normalBaseColorInverse)
+
+// Slow Color Gradients (Areas and Lines)
+slowBaseColor = getPlotColor(signalSlow, slowBullishColor, slowBearishColor)
+slowBaseColorInverse = getPlotColor(signalSlow, slowBearishColor, slowBullishColor)
+slowAreaGradientFromSource = getColorGradientFromSource(seriesSlow, -1.75+offsetSlow, 1.75+offsetSlow, color.new(slowBaseColor, areaSlowTrans), slowBaseColor)
+slowAreaGradientFromSteps = getColorGradientFromSteps(seriesSlow, offsetSlow, maxStepsForGradient, color.new(slowBaseColor, areaSlowTrans), slowBaseColor)
+slowLineGradientFromSource = getColorGradientFromSource(seriesSlow, -1.75+offsetSlow, 1.75+offsetSlow, color.new(slowBaseColor, lineSlowTrans), slowBaseColor)
+slowLineGradientFromSteps = getColorGradientFromSteps(seriesSlow, offsetSlow, maxStepsForGradient, color.new(slowBaseColor, lineSlowTrans), slowBaseColor)
+slowAreaGradientFromSourceInverse = getColorGradientFromSource(seriesSlow, -1.75+offsetSlow, 1.75+offsetSlow, color.new(slowBaseColorInverse, areaSlowTrans), slowBaseColorInverse)
+slowAreaGradientFromStepsInverse = getColorGradientFromSteps(seriesSlow, offsetSlow, maxStepsForGradient, color.new(slowBaseColorInverse, areaSlowTrans), slowBaseColorInverse)
+
+// =========================================
+// ==== Plot Parameters and Logic Gates ====
+// =========================================
+
+// Speed Booleans
+isSlow = speedToEmphasize == "Slow"
+isNormal = speedToEmphasize == "Normal"
+isFast = speedToEmphasize == "Fast"
+
+// Series Colors
+seriesSlowColor = showOsc or isSlow ? color.new(slowLineGradientFromSource, lineSlowTrans) : na
+seriesNormalColor = showOsc or isNormal ? color.new(normalLineGradientFromSource, lineNormalTrans) : na
+seriesFastColor = showOsc or isFast ? color.new(fastLineGradientFromSource, lineFastTrans) : na
+seriesSlowMirrorColor = useMirror ? seriesSlowColor : na
+seriesNormalMirrorColor = useMirror ? seriesNormalColor : na
+seriesFastMirrorColor = useMirror ? seriesFastColor : na
+
+// Series Line Widths
+seriesSlowWidth = isSlow ? emphasisWidth : 1
+seriesNormalWidth = isNormal ? emphasisWidth : 1
+seriesFastWidth = isFast ? emphasisWidth : 1
+seriesSlowMirrorWidth = useMirror ? seriesSlowWidth : na
+seriesNormalMirrorWidth = useMirror ? seriesNormalWidth : na
+seriesFastMirrorWidth = useMirror ? seriesFastWidth : na
+
+// Speed Related Switches
+seriesEmphasis = switch
+    isFast => seriesFast
+    isNormal => seriesNormal
+    isSlow => seriesSlow
+    => na
+
+colorLineEmphasis = switch
+    isFast => fastLineGradientFromSource
+    isNormal => normalLineGradientFromSource
+    isSlow => slowLineGradientFromSource
+    => na
+
+colorAreaEmphasis = switch
+    isFast => fastAreaGradientFromSource
+    isNormal => normalAreaGradientFromSource
+    isSlow => slowAreaGradientFromSource
+    => na
+
+// Crossover Signals
+bearishCross = ta.crossunder(seriesFast, seriesNormal) and seriesNormal > 0 
+bullishCross = ta.crossover(seriesFast, seriesNormal) and seriesNormal < 0
+slowBearishMedianCross = ta.crossunder(seriesSlow, 0)
+slowBullishMedianCross = ta.crossover(seriesSlow, 0)
+normalBearishMedianCross = ta.crossunder(seriesNormal, 0)
+normalBullishMedianCross = ta.crossover(seriesNormal, 0)
+fastBearishMedianCross = ta.crossunder(seriesFast, 0)
+fastBullishMedianCross = ta.crossover(seriesFast, 0)
+
+// Last Crossover Values
+lastBearishCrossValue = ta.valuewhen(condition=bearishCross, source=seriesNormal, occurrence=1)
+lastBullishCrossValue = ta.valuewhen(condition=bullishCross , source=seriesNormal, occurrence=1)
+
+// Trigger Wave Size Comparison
+triggerWaveFactor = sizePercent/100
+isSmallerBearishCross = bearishCross and seriesNormal < lastBearishCrossValue * triggerWaveFactor
+isSmallerBullishCross = bullishCross and seriesNormal > lastBullishCrossValue * triggerWaveFactor
+
+// ===========================
+// ==== Kernel Estimators ====
+// ===========================
+
+// Gaussian Kernel with a lookback of 6 bars, starting on bar 6 of the chart (medium fit)
+yhat0 = kernels.gaussian(seriesEmphasis, 6, 6) 
+
+// Gaussian Kernel with a lookback of 3 bars, starting on bar 2 of the chart (tight fit)
+yhat1 = kernels.gaussian(seriesEmphasis, 3, 2) 
+
+// Trend Assessment based on the relative position of the medium fit kernel to the slow oscillator
+isBearishKernelTrend = yhat0 < seriesSlow
+isBullishKernelTrend = yhat0 > seriesSlow
+
+// Plots of the Kernel Estimators
+p = plot(showWT ? seriesEmphasis:na, title="Series Emphasis", color=color.new(color.white, 100))
+p0 = plot(showWT ? (useKernelMA ? yhat0 : na) : na, "Kernel Estimate for Trend", color=colorLineEmphasis)
+p1 = plot(showWT ? (useKernelEmphasis ? yhat1 : na) : na, "Kernel Estimate for Emphasis", color=colorLineEmphasis)
+
+// Fills for the Kernel Ribbon Colors
+fill(p, p0, color=fastLineGradientFromSource)
+fill(p, p1, color=fastLineGradientFromSource)
+
+// Divergence Signals
+isBearishDivZone = ta.barssince(bearishCross[1]) < divThreshold
+isBullishDivZone = ta.barssince(bullishCross[1]) < divThreshold
+
+// Crossover Detection
+isBearishTriggerWave = isSmallerBearishCross and isBearishDivZone and isBearishKernelTrend
+isBullishTriggerWave = isSmallerBullishCross and isBullishDivZone and isBullishKernelTrend
+
+// =======================
+// ==== Plots & Fills ====
+// =======================
+
+// Overbought/Oversold Zones
+obPlot1 = plot(showWT ? ob1:na, "Overbought Primary", color=na)
+obPlot2 = plot(showWT ? ob2:na, "Overbought Secondary", color=na)
+osPlot1 = plot(showWT ? os1:na, "Oversold  Primary", color=na)
+osPlot2 = plot(showWT ? os2:na, "Oversold Secondary", color=na)
+fill(obPlot1, obPlot2, showWT ? (offset == 0 and showObOs ? invertObOsColors ? normalAreaGradientFromStepsInverse : normalAreaGradientFromSteps : na):color(na))
+fill(osPlot1, osPlot2, showWT ? (offset == 0 and showObOs ? invertObOsColors ? normalAreaGradientFromStepsInverse : normalAreaGradientFromSteps : na):color(na)) 
+
+// Slow Plots with Fills
+slowOscPlot = plot(showWT ? seriesSlow:na, "Slow Oscillator", color=seriesSlowColor, linewidth=seriesSlowWidth)
+slowOscPlotMirror = plot(showWT ? seriesSlowMirror:na, "Slow Oscillator Mirror", color=seriesSlowMirrorColor, linewidth=seriesSlowMirrorWidth)
+baseLineSlow = plot(showWT ? offsetSlow:na, "Baseline Slow", slowLineGradientFromSteps, style=plot.style_line, linewidth=1)
+fill(baseLineSlow, slowOscPlot, showWT ? slowAreaGradientFromSource:color(na))
+fill(baseLineSlow, slowOscPlotMirror, showWT ? slowAreaGradientFromSource:color(na))
+
+// Normal Plots with Fills
+normalOscPlot = plot(showWT ? seriesNormal:na, "Normal Oscillator", color=seriesNormalColor, linewidth=seriesNormalWidth)
+normalOscPlotMirror = plot(showWT ? seriesNormalMirror:na, "Normal Oscillator Mirror", color=seriesNormalMirrorColor, linewidth=seriesNormalMirrorWidth)
+baseLineNormal = plot(showWT ? offsetNormal:na, "Baseline Normal", normalLineGradientFromSteps, style=plot.style_line, linewidth=1)
+fill(baseLineNormal, normalOscPlot, showWT ? normalAreaGradientFromSource:color(na))
+fill(baseLineNormal, normalOscPlotMirror, showWT ? normalAreaGradientFromSource:color(na))
+
+// Fast Plots with Fills
+fastOscPlot = plot(showWT ? seriesFast:na, "Fast Oscillator", color=seriesFastColor, linewidth=seriesFastWidth)
+fastOscPlotMirror = plot(showWT ? seriesFastMirror:na, "Fast Oscillator Mirror", color=seriesFastMirrorColor, linewidth=seriesFastMirrorWidth)
+baseLineFast = plot(showWT ? offsetFast:na, "Baseline Fast", color=fastLineGradientFromSteps, style=plot.style_line, linewidth=1)
+fill(baseLineFast, fastOscPlot, showWT ? fastAreaGradientFromSource:color(na))
+fill(baseLineFast, fastOscPlotMirror, showWT ? fastAreaGradientFromSource:color(na))
+
+// Signal Plots
+plot(showWT ? (bearishCross ? useMirror ? 0 : seriesNormal : na):na, title="Bearish Cross", style=plot.style_circles, linewidth=1, color=c_bearish, offset=-1)
+plot(showWT ? (isBearishTriggerWave ? useMirror ? 0 : seriesNormal : na):na, title="Bearish Trigger Cross", style=plot.style_circles, linewidth=3, color=c_bearish, offset=-1)
+plot(showWT ? (bullishCross ? useMirror ? 0 : seriesNormal : na):na, title="Bullish Cross", style=plot.style_circles, linewidth=1, color=c_bullish, offset=-1)
+plot(showWT ? (isBullishTriggerWave ? useMirror ? 0 : seriesNormal : na):na, title="Bullish Trigger Cross", style=plot.style_circles, linewidth=3, color=c_bullish, offset=-1) 
