@@ -13,12 +13,12 @@ import jdehorty/KernelFunctions/2 as kernels
 
 // general
 showCTOsc = input.bool(true, 'Show Current timeframe Oscillator?', group = 'General')
-showFast = input.bool(true, 'Show Fast Kernel on Oscillators?', group = 'General')
-showSlow = input.bool(true, 'Show Slow Kernel on Oscillators?', group = 'General')
 showHTOsc = input.bool(false, 'Show Higher timeframe Oscillator?', group = 'General', inline = 'Higher Timeframe')
 higherTimeframe = input.timeframe('D', 'Higher Timeframe', group = 'General', inline = 'Higher Timeframe')
 showLTfOsc = input.bool(false, 'Show Lower timeframe Oscillator?', group = 'General', inline = 'Lower Timeframe')
 lowerTimeframe = input.timeframe('60', 'Lower Timeframe', group = 'General', inline = 'Lower Timeframe')
+showFast = input.bool(true, 'Show Fast Kernel on Oscillators?', group = 'General')
+showSlow = input.bool(true, 'Show Slow Kernel on Oscillators?', group = 'General')
 
 // Display
 width = input(2, 'Line Width', group = 'Display')
@@ -87,14 +87,14 @@ kernelOscillator() =>
 
 // Current timeframe oscillator
 [osc, oscColour, kernelFast, kernelFastColor, kernelSlow, kernelSlowColor] = kernelOscillator()
-// plot(showCTOsc ? osc:na, 'Current Timeframe Oscillator line', oscColour, width)
+plot(showCTOsc ? osc:na, 'Current Timeframe Oscillator line', oscColour, width)
 plot(showCTOsc ? osc:na, "Current Timeframe Oscillator", color.new(oscColour, colorTrans), style=plot.style_columns)
 plot(showFast and showCTOsc ? kernelFast:na, "Current Timeframe Fast Kernel", kernelFastColor, linewidth = width)
 plot(showSlow and showCTOsc ? kernelSlow:na, "Current Timeframe Slow Kernel", kernelSlowColor, linewidth = width)
 
 // Getting higher timeframe oscillator
 [htfOsc, htfOscColour, htfKernelFast, htfKernelFastColor, htfKernelSlow, htfKernelSlowColor] = request.security(syminfo.tickerid, higherTimeframe, kernelOscillator(), barmerge.gaps_off)
-// plot(showHTOsc ? htfOsc:na, 'Higher Timeframe Oscillator line', htfOscColour, width)
+plot(showHTOsc ? htfOsc:na, 'Higher Timeframe Oscillator line', htfOscColour, width)
 plot(showHTOsc ? htfOsc:na, "Higher Timeframe Oscillator", color.new(htfOscColour, colorTrans), style=plot.style_columns)
 plot(showFast and showHTOsc ? htfKernelFast:na, "Higher Timeframe Fast Kernel", htfKernelFastColor, linewidth = width)
 plot(showSlow and showHTOsc ? htfKernelSlow:na, "Higher Timeframe Slow Kernel", htfKernelSlowColor, linewidth = width)
@@ -160,20 +160,19 @@ setupLtfValues(ltfSlowKernelColorArray, ltfKernelSlowColor, slowKernelColorArray
 
 
 // Draw lower timeframe oscillator values
-plot(showLTfOsc ? getArrayValue(oscArray, 0):na, color=getArrayValue(oscColorArray, 0), style=plot.style_columns)
-plot(showLTfOsc ? getArrayValue(oscArray, 1):na, color=getArrayValue(oscColorArray, 1), style=plot.style_columns)
-plot(showLTfOsc ? getArrayValue(oscArray, 2):na, color=getArrayValue(oscColorArray, 2), style=plot.style_columns)
-plot(showLTfOsc ? getArrayValue(oscArray, 3):na, color=getArrayValue(oscColorArray, 3), style=plot.style_columns)
+plot(showLTfOsc ? getArrayValue(oscArray, 0):na, color=color.new(getArrayValue(oscColorArray, 0), colorTrans), style=plot.style_columns)
+plot(showLTfOsc ? getArrayValue(oscArray, 1):na, color=color.new(getArrayValue(oscColorArray, 1), colorTrans), style=plot.style_columns)
+plot(showLTfOsc ? getArrayValue(oscArray, 2):na, color=color.new(getArrayValue(oscColorArray, 2), colorTrans), style=plot.style_columns)
+plot(showLTfOsc ? getArrayValue(oscArray, 3):na, color=color.new(getArrayValue(oscColorArray, 3), colorTrans), style=plot.style_columns)
 
 // Draw lower timeframe Fast Kernel line
-plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 0):na, color=color.new(getArrayValue(fastKernelColorArray, 0), colorTrans))
-plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 1):na, color=color.new(getArrayValue(fastKernelColorArray, 1), colorTrans))
-plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 2):na, color=color.new(getArrayValue(fastKernelColorArray, 2), colorTrans))
-plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 3):na, color=color.new(getArrayValue(fastKernelColorArray, 3), colorTrans))
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 0):na, color=getArrayValue(fastKernelColorArray, 0))
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 1):na, color=getArrayValue(fastKernelColorArray, 1))
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 2):na, color=getArrayValue(fastKernelColorArray, 2))
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 3):na, color=getArrayValue(fastKernelColorArray, 3))
 
 // Draw lower timeframe Slow Kernel line
-plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 0):na, color=color.new(getArrayValue(slowKernelColorArray, 0), colorTrans))
-plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 1):na, color=color.new(getArrayValue(slowKernelColorArray, 1), colorTrans))
-plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 2):na, color=color.new(getArrayValue(slowKernelColorArray, 2), colorTrans))
-plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 3):na, color=color.new(getArrayValue(slowKernelColorArray, 3), colorTrans))
-
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 0):na, color=getArrayValue(slowKernelColorArray, 0))
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 1):na, color=getArrayValue(slowKernelColorArray, 1))
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 2):na, color=getArrayValue(slowKernelColorArray, 2))
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 3):na, color=getArrayValue(slowKernelColorArray, 3))
