@@ -1,15 +1,34 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © SamaaraDas
 
+// @description
+// Kernel AO Oscillator is our own custom indicator and is basically the Awesome Oscillator redeveloped using Kernel Regressions. 
+// Instead of using 2 Moving Averages for the oscillator's calculation, 2 Kernel Regressions are used. This has its own fast and slow Kernel lines which use the oscillator in its calculations.
+// You can view the oscillator based on a higher timeframe of your choice. The same goes for viewing a lower timeframe version.
+
 //@version=5
 indicator("Kernel AO Oscillator", overlay = false, format = format.price, max_bars_back = 5000, max_lines_count = 500, precision = 5)
 
 import jdehorty/KernelFunctions/2 as kernels
 
 // general
-width = input(2, 'Line Width', group = 'General')
-showFast = input.bool(true, 'Show Fast Kernel', group = 'General')
-showSlow = input.bool(true, 'Show Slow Kernel', group = 'General')
+showCTOsc = input.bool(true, 'Show Current timeframe Oscillator?', group = 'General')
+showFast = input.bool(true, 'Show Fast Kernel on Oscillators?', group = 'General')
+showSlow = input.bool(true, 'Show Slow Kernel on Oscillators?', group = 'General')
+showHTOsc = input.bool(false, 'Show Higher timeframe Oscillator?', group = 'General', inline = 'Higher Timeframe')
+higherTimeframe = input.timeframe('D', 'Higher Timeframe', group = 'General', inline = 'Higher Timeframe')
+showLTfOsc = input.bool(false, 'Show Lower timeframe Oscillator?', group = 'General', inline = 'Lower Timeframe')
+lowerTimeframe = input.timeframe('60', 'Lower Timeframe', group = 'General', inline = 'Lower Timeframe')
+
+// Display
+width = input(2, 'Line Width', group = 'Display')
+ctfFallingColor = input.color(#cf0f49, 'Current tf Falling Color', group = 'Display')
+ctfRisingColor = input.color(#5d0995, 'Current tf Rising Color', group = 'Display')
+htfFallingColor = input.color(#03c020, 'Higher tf Falling Color', group = 'Display')
+htfRisingColor = input.color(#09d6c5, 'Higher tf Rising Color', group = 'Display')
+ltfFallingColor = input.color(#008080, 'Lower tf Falling Color', group = 'Display')
+ltfRisingColor = input.color(#FF7F50, 'Lower tf Rising Color', group = 'Display')
+colorTrans = input.float(40, 'Oscillator Color Transparency', group = 'Display')
 
 //user Input for the fast Kernel line
 string kernelFastType = input.string("Rational Quadratic", "Kernel Type", options = ["Rational Quadratic", "Gaussian"], group = "Fast Kernel Settings" )
@@ -27,38 +46,134 @@ int kernelSlowRegressionStart = input.int(120, "Regression Start",2 , 400, group
 bool kernelSlowSmooth = input.bool(true, "Smooth Line", inline = "Smooth", group = "Slow Kernel Settings")
 int kernelSlowSmoothPeriod = input.int(40, "",2 , 200, inline = "Smooth", group = "Slow Kernel Settings")
 
-//fast Kernel line
-float kernelFast = switch kernelFastType
-    "Rational Quadratic" => kernels.rationalQuadratic(close, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
-    "Gaussian" => kernels.gaussian(close, kernelFastLookback, kernelFastRegressionStart)
+// @function This function calculates the Kernel AO Oscillator.
+// @returns This returns a tuple with the following values: oscillator, oscillator's color, fast kernel, fast kernel's color, slow kernel, slow kernel's color
+kernelOscillator() =>
+    //fast Kernel line
+    float kernelFast = switch kernelFastType
+        "Rational Quadratic" => kernels.rationalQuadratic(close, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+        "Gaussian" => kernels.gaussian(close, kernelFastLookback, kernelFastRegressionStart)
 
-if kernelFastSmooth
-    kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
-    
-kernelFastRising = ta.rising(kernelFast, 1)
-kernelFastColor = kernelFastRising ? #00d107 : #fa1f1f
+    if kernelFastSmooth
+        kernelFast := ta.sma(kernelFast, kernelFastSmoothPeriod)
+        
+    kernelFastRising = ta.rising(kernelFast, 1)
+    kernelFastColor = kernelFastRising ? #00d107 : #fa1f1f
+
+    //slow Kernel line
+    float kernelSlow = switch kernelSlowType
+        "Rational Quadratic" => kernels.rationalQuadratic(close, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+        "Gaussian" => kernels.gaussian(close, kernelSlowLookback, kernelSlowRegressionStart)
+
+    if kernelSlowSmooth
+        kernelSlow := ta.sma(kernelSlow, kernelSlowSmoothPeriod)
+
+    kernelSlowRising = ta.rising(kernelSlow, 1)
+    kernelSlowColor = kernelSlowRising ? #00d107 : #fa1f1f
+
+    osc = kernelFast - kernelSlow
+    diff = osc - osc[1]
+    // choosing what color to show based on what timeframe the oscillator is on
+    fallingColor = timeframe.period == higherTimeframe ? htfFallingColor : timeframe.period == lowerTimeframe ? ltfFallingColor : ctfFallingColor
+    risingColor = timeframe.period == higherTimeframe ? htfRisingColor : timeframe.period == lowerTimeframe ? ltfRisingColor : ctfRisingColor
+    oscColour = diff <= 0 ? fallingColor : risingColor
+
+    kernelFast := kernels.rationalQuadratic(osc, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
+    kernelSlow := kernels.rationalQuadratic(osc, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
+
+    [osc, oscColour, kernelFast, kernelFastColor, kernelSlow, kernelSlowColor]
+//
 
 
-//slow Kernel line
-float kernelSlow = switch kernelSlowType
-    "Rational Quadratic" => kernels.rationalQuadratic(close, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
-    "Gaussian" => kernels.gaussian(close, kernelSlowLookback, kernelSlowRegressionStart)
+// Current timeframe oscillator
+[osc, oscColour, kernelFast, kernelFastColor, kernelSlow, kernelSlowColor] = kernelOscillator()
+// plot(showCTOsc ? osc:na, 'Current Timeframe Oscillator line', oscColour, width)
+plot(showCTOsc ? osc:na, "Current Timeframe Oscillator", color.new(oscColour, colorTrans), style=plot.style_columns)
+plot(showFast and showCTOsc ? kernelFast:na, "Current Timeframe Fast Kernel", kernelFastColor, linewidth = width)
+plot(showSlow and showCTOsc ? kernelSlow:na, "Current Timeframe Slow Kernel", kernelSlowColor, linewidth = width)
 
-if kernelSlowSmooth
-    kernelSlow := ta.sma(kernelSlow, kernelSlowSmoothPeriod)
+// Getting higher timeframe oscillator
+[htfOsc, htfOscColour, htfKernelFast, htfKernelFastColor, htfKernelSlow, htfKernelSlowColor] = request.security(syminfo.tickerid, higherTimeframe, kernelOscillator(), barmerge.gaps_off)
+// plot(showHTOsc ? htfOsc:na, 'Higher Timeframe Oscillator line', htfOscColour, width)
+plot(showHTOsc ? htfOsc:na, "Higher Timeframe Oscillator", color.new(htfOscColour, colorTrans), style=plot.style_columns)
+plot(showFast and showHTOsc ? htfKernelFast:na, "Higher Timeframe Fast Kernel", htfKernelFastColor, linewidth = width)
+plot(showSlow and showHTOsc ? htfKernelSlow:na, "Higher Timeframe Slow Kernel", htfKernelSlowColor, linewidth = width)
 
-kernelSlowRising = ta.rising(kernelSlow, 1)
-kernelSlowColor = kernelSlowRising ? #00d107 : #fa1f1f
+// Getting lower timeframe oscillator
+// The logic for plotting a lower timeframe oscillator was derived from this video: https://www.youtube.com/watch?v=0gPeni9gW2E&t=1441s
+
+// Define custom function for safely retrieving array values without index OOB errors
+getArrayValue(array, int idx) =>
+    if array.size(array) > idx
+        array.get(array, idx)
+    else
+        na
+//
+
+i_Lookback = 4
+[ltfOsc, ltfOscColour, ltfKernelFast, ltfKernelFastColor, ltfKernelSlow, ltfKernelSlowColor] = kernelOscillator()
+
+// Lower timeframe Oscillator
+float[] ltfOscArray = request.security_lower_tf(syminfo.tickerid, lowerTimeframe, ltfOsc)
+var float[] oscArray = array.new_float(i_Lookback, 0)
+
+// Lower timeframe Oscillator Color
+color[] ltfOscColorArray = request.security_lower_tf(syminfo.tickerid, lowerTimeframe, ltfOscColour)
+var color[] oscColorArray = array.new_color(i_Lookback, color(na))
+
+// Lower timeframe Fast Kernel
+float[] ltfFastKernelArray = request.security_lower_tf(syminfo.tickerid, lowerTimeframe, ltfKernelFast)
+var float[] fastKernelArray = array.new_float(i_Lookback, 0)
+
+// Lower timeframe Fast Kernel Color
+color[] ltfFastKernelColorArray = request.security_lower_tf(syminfo.tickerid, lowerTimeframe, ltfKernelFastColor)
+var color[] fastKernelColorArray = array.new_color(i_Lookback, color(na))
+
+// Lower timeframe Slow Kernel
+float[] ltfSlowKernelArray = request.security_lower_tf(syminfo.tickerid, lowerTimeframe, ltfKernelSlow)
+var float[] slowKernelArray = array.new_float(i_Lookback, 0)
+
+// Lower timeframe Slow Kernel Color
+color[] ltfSlowKernelColorArray = request.security_lower_tf(syminfo.tickerid, lowerTimeframe, ltfKernelSlowColor)
+var color[] slowKernelColorArray = array.new_color(i_Lookback, color(na))
+
+// @function this populates recievingArray with lower timeframe values
+setupLtfValues(ltfArray, ltfVal, recievingArray) =>
+    // If current timeframe is the reference timeframe, we don't need to reference LTF data
+    if timeframe.period == lowerTimeframe
+        for i = 0 to array.size(recievingArray) - 1
+            array.set(recievingArray, i, ltfVal[i]) // Set each array index with the corresponding historical value
+        array.reverse(recievingArray) // Reverse array to be consistent with HTF array population handled below
+    else // Populate our array
+        if array.size(ltfArray) > 0
+            for i = 0 to array.size(ltfArray) - 1
+                array.shift(recievingArray) // Remove the array's first element
+                array.push(recievingArray, array.get(ltfArray, i)) // Insert a new array element (FIFO)
+//
+
+setupLtfValues(ltfOscArray, ltfOsc, oscArray)
+setupLtfValues(ltfOscColorArray, ltfOscColour, oscColorArray)
+setupLtfValues(ltfFastKernelArray, ltfKernelFast, fastKernelArray)
+setupLtfValues(ltfFastKernelColorArray, ltfKernelFastColor, fastKernelColorArray)
+setupLtfValues(ltfSlowKernelArray, ltfKernelSlow, slowKernelArray)
+setupLtfValues(ltfSlowKernelColorArray, ltfKernelSlowColor, slowKernelColorArray)
 
 
+// Draw lower timeframe oscillator values
+plot(showLTfOsc ? getArrayValue(oscArray, 0):na, color=getArrayValue(oscColorArray, 0), style=plot.style_columns)
+plot(showLTfOsc ? getArrayValue(oscArray, 1):na, color=getArrayValue(oscColorArray, 1), style=plot.style_columns)
+plot(showLTfOsc ? getArrayValue(oscArray, 2):na, color=getArrayValue(oscColorArray, 2), style=plot.style_columns)
+plot(showLTfOsc ? getArrayValue(oscArray, 3):na, color=getArrayValue(oscColorArray, 3), style=plot.style_columns)
 
+// Draw lower timeframe Fast Kernel line
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 0):na, color=color.new(getArrayValue(fastKernelColorArray, 0), colorTrans))
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 1):na, color=color.new(getArrayValue(fastKernelColorArray, 1), colorTrans))
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 2):na, color=color.new(getArrayValue(fastKernelColorArray, 2), colorTrans))
+plot(showFast and showLTfOsc ? getArrayValue(fastKernelArray, 3):na, color=color.new(getArrayValue(fastKernelColorArray, 3), colorTrans))
 
-osc = kernelFast - kernelSlow
-diff = osc - osc[1]
-plot(osc, color = diff <= 0 ? #cf0f49 : #5d0995, style=plot.style_columns)
+// Draw lower timeframe Slow Kernel line
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 0):na, color=color.new(getArrayValue(slowKernelColorArray, 0), colorTrans))
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 1):na, color=color.new(getArrayValue(slowKernelColorArray, 1), colorTrans))
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 2):na, color=color.new(getArrayValue(slowKernelColorArray, 2), colorTrans))
+plot(showSlow and showLTfOsc ? getArrayValue(slowKernelArray, 3):na, color=color.new(getArrayValue(slowKernelColorArray, 3), colorTrans))
 
-
-kernelFast := kernels.rationalQuadratic(osc, kernelFastLookback, kernelFastWeight, kernelFastRegressionStart)
-kernelSlow := kernels.rationalQuadratic(osc, kernelSlowLookback, kernelSlowWeight, kernelSlowRegressionStart)
-plot(showFast ? kernelFast:na, title="Fast Kernel", color=kernelFastColor, linewidth = width)
-plot(showSlow ? kernelSlow:na, title="Slow Kernel", color=kernelSlowColor, linewidth = width)
