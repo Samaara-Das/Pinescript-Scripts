@@ -29,6 +29,7 @@ var bool prev_bearishOB_bar3_valid = false
 // Performance optimization settings
 var int maxOBs = input.int(500, "Maximum Order Blocks to Track", minval=50, maxval=1000, tooltip="Limits memory usage and improves performance on longer timeframes")
 var barsToKeepReversed = input.int(50, "Bars to Keep Reversed OBs", minval=10, maxval=200, tooltip="How long to keep reversed OBs before removing them")
+var bool hideReversedOBs = input.bool(false, "Remove Reversed OBs?", tooltip="If checked, reversed order blocks will not be displayed on the chart")
 
 // Color settings for different types of order blocks
 var color bullishOBColor = input.color(color.blue, "Bullish OB - Current Bar", inline="bull_colors")
@@ -324,6 +325,10 @@ drawAllOBs() =>
         for i = startIdx to arraySize - 1
             ob = array.get(allOBs, i)
             
+            // Skip reversed OBs if hideReversedOBs is enabled
+            if hideReversedOBs and ob.state == "reversed"
+                continue
+            
             // Base shouldShow from display mode
             bool baseShow = switch obDisplayMode
                 "Only Tested" => ob.isTested
@@ -485,4 +490,4 @@ if barstate.islast
     // Also print debugging info to the log
     if foundAnyBreaker
         debugText = "DEBUG INFO - BREAKER " + breakerType + " AT " + str.tostring(lastBreakerBar) + "\nBull Breakers: " + str.tostring(bullBreakerCount) + "\nBear Breakers: " + str.tostring(bearBreakerCount)
-        // Removed debug label - label.new(time[5], high + (ta.tr * 5), debugText, color=color.gray, style=label.style_label_down, textcolor=color.white, size=size.normal, xloc=xloc.bar_time) 
+        // Removed debug label - label.new(time[5], high + (ta.tr * 5), debugText, color=color.gray, style=label.style_label_down, textcolor=color.white, size=size.normal, xloc=xloc.bar_time)
