@@ -1,0 +1,488 @@
+//@version=6
+// Order Block (OB) Indicator: Detects institutional supply/demand zones via price gaps (FVGs) and liquidity sweeps. Tracks OBs (active, tested, breaker, reversed; max 500, cleanup reversed after 50 bars). Toggles for bullish/bearish OBs/FVGs, extensions, debug labels, test levels.
+// OBs: Bullish (demand, blue/purple; tested: yellow; breaker: red; reversed: black 40% opacity); Bearish (supply, red/maroon; tested: green; breaker: blue; reversed: black 40% opacity). Drawn as rectangles, no borders.
+// FVGs: Bullish (lime, above OB); Bearish (orange, below OB); Filled (optional, gray 50% opacity, labeled "Filled bullish/bearish FVG" if price fills x%—default 50%—from opposite side). Drawn as short rectangles, no borders.
+// Logic: OBs/FVGs detected on historical bars (2/3) with gap + sweep. Bullish: upward gap below validation low + low sweep; Bearish: downward gap above validation high + high sweep; FVGs filled if prior bar wicks x% into gap from top (bullish) or bottom (bearish).
+
+indicator("Order Block Indicator", overlay=true)
+
+// ==================================================================================
+// Input Parameters
+// These are settings that can be adjusted by the user in the indicator settings
+// ==================================================================================
+
+// Debug tracking variables - these are global for the entire script
+var bool foundAnyBreaker = false
+var int lastBreakerBar = 0
+var string breakerType = ""
+var int bullOBCount = 0
+var int bearOBCount = 0
+var int bullBreakerCount = 0
+var int bearBreakerCount = 0
+
+// Store previous valid OB states to avoid duplicate counting
+var bool prev_bullishOB_bar2_valid = false
+var bool prev_bullishOB_bar3_valid = false
+var bool prev_bearishOB_bar2_valid = false
+var bool prev_bearishOB_bar3_valid = false
+
+// Performance optimization settings
+var int maxOBs = input.int(500, "Maximum Order Blocks to Track", minval=50, maxval=1000, tooltip="Limits memory usage and improves performance on longer timeframes")
+var barsToKeepReversed = input.int(50, "Bars to Keep Reversed OBs", minval=10, maxval=200, tooltip="How long to keep reversed OBs before removing them")
+
+// Color settings for different types of order blocks
+var color bullishOBColor = input.color(color.blue, "Bullish OB - Current Bar", inline="bull_colors")
+var color bullishOBColor2 = input.color(color.purple, "Bullish OB - Previous Bar Sweep", inline="bull_colors")
+var color testedBullishOBColor = input.color(color.yellow, "Tested Bullish OB Color")
+
+var color bearishOBColor = input.color(color.red, "Bearish OB - Current Bar", inline="bear_colors")
+var color bearishOBColor2 = input.color(color.maroon, "Bearish OB - Previous Bar Sweep", inline="bear_colors")
+var color testedBearishOBColor = input.color(color.green, "Tested Bearish OB Color")
+
+// Breaker colors
+var color breakerSupportColor = input.color(color.new(color.blue, 0), "Breaker Support Color")
+var color breakerResistanceColor = input.color(color.new(color.red, 0), "Breaker Resistance Color")
+var color reversedOBColor = input.color(color.new(color.black, 40), "Reversed OB Color")
+
+// Display toggles for OB types
+var bool showBullishOBs = input.bool(true, "Show Bullish OBs")
+var bool showBearishOBs = input.bool(true, "Show Bearish OBs")
+
+// FVG display options
+var bool showBullishFVGs = input.bool(true, "Show Bullish FVGs")
+var bool showBearishFVGs = input.bool(true, "Show Bearish FVGs")
+var color bullFVGColor = input.color(color.new(color.lime, 30), "Bullish FVG Color")
+var color bearFVGColor = input.color(color.new(color.orange, 30), "Bearish FVG Color")
+var float fillPercent = input.float(50, "FVG Fill Percentage", minval=0, maxval=100)
+var bool showFilledFVGs = input.bool(true, "Show Filled FVGs")
+var color filledFVGColor = input.color(color.new(color.gray, 50), "Filled FVG Color")
+var bool showFVGFillLevel = input.bool(true, "Show FVG Fill Level Line")
+
+// Display options
+var string obDisplayMode = input.string("All", "Order Block Display Mode", options=["All", "Only Tested", "Only Untested"])
+var bool extendToPresent = input.bool(false, "Extend Order Blocks to Current Bar")
+var bool showActiveOBsExtended = input.bool(false, "Show Only Active OBs Extended", tooltip="Shows only active and breaker OBs extended to current bar (excludes tested and reversed)")
+var bool showDebugLabels = input.bool(false, "Show Debug Labels")
+var bool showTestLevels = input.bool(true, "Show Test Price Levels")
+var bool showBreakerInfo = input.bool(false, "Show Breaker State Info")
+
+// Testing criteria options
+var float testPercent = input.float(30.0, "Test Percentage", minval=1, maxval=100, step=1)
+
+// Debug Options
+var color debugColor = color.new(color.white, 0)
+
+// Calculate offset for label positioning
+labelOffset = ta.tr * 1.5  // Using 1.5 times the True Range for better visibility
+
+// ==================================================================================
+// Helper Functions
+// These functions help calculate common values used throughout the indicator
+// ==================================================================================
+
+// Calculate the test price level based on percentage for bullish OB (from high)
+getBullishTestPrice(obHigh, obLow) =>
+    candleRange = obHigh - obLow
+    testDistance = (candleRange * testPercent) / 100
+    obHigh - testDistance
+
+// Calculate the test price level based on percentage for bearish OB (from low)
+getBearishTestPrice(obHigh, obLow) =>
+    candleRange = obHigh - obLow
+    testDistance = (candleRange * testPercent) / 100
+    obLow + testDistance
+
+// Function to create debug text
+getDebugText(obHigh, obLow, curHigh, curLow, hasGap, hasSweep, isTest, testPrice) => str.tostring(obHigh, '#.##') + '\n' + str.tostring(obLow, '#.##') + '\n' + 'Gap: ' + (hasGap ? '✓' : '×') + '\n' + 'Sweep: ' + (hasSweep ? '✓' : '×') + '\n' + 'Test Price: ' + str.tostring(testPrice, '#.##') + '\n' + 'Test: ' + (isTest ? '✓' : '×')
+
+// Function to check bearish OB conditions for a specific bar
+isBearishOB(idx) => 
+    // First check gap validation using bar[2] only
+    // - low[2] > high[0] (gap with current bar)
+    // - low[2] > low[0] (maintains bearish structure)
+    hasGap = low[idx] > high[0] and low[idx] > low[0]
+    
+    isValid = false
+    isBar3 = false
+    
+    if hasGap
+        if idx == 2  // Only check bar[2] when idx is 2
+            // Check if bar[2] has valid price sweep
+            if high[2] > high[1] and high[2] > high[3]
+                isValid := true
+        else if idx == 3  // Only check bar[3] when idx is 3
+            // Check if bar[3] has valid price sweep
+            if high[3] > high[2] and high[3] > high[4]
+                isValid := true
+                isBar3 := true
+    
+    // Return validity and which bar is the OB (via isBar3)
+    [isValid, isBar3]
+
+// Function to check bullish OB conditions for a specific bar
+isBullishOB(idx) => 
+    // First check gap validation using bar[2] only
+    // - high[2] < low[0] (gap with current bar)
+    // - high[2] < high[0] (maintains bullish structure)
+    hasGap = high[idx] < low[0] and high[idx] < high[0]
+    
+    isValid = false
+    isBar3 = false
+    
+    if hasGap
+        if idx == 2  // Only check bar[2] when idx is 2
+            // Check if bar[2] has valid price sweep
+            if low[2] < low[1] and low[2] < low[3]
+                isValid := true
+        else if idx == 3  // Only check bar[3] when idx is 3
+            // Check if bar[3] has valid price sweep
+            if low[3] < low[2] and low[3] < low[4]
+                isValid := true
+                isBar3 := true
+    
+    // Return validity and which bar is the OB (via isBar3)
+    [isValid, isBar3]
+
+// ==================================================================================
+// Persistent OB State Tracking
+// This section tracks all identified OBs and their state changes over time
+// ==================================================================================
+
+// Define a type for tracking OB state
+type OBState
+    int barIndex          // The bar where the OB was identified
+    int gapValidationBar  // The gap validation bar (bar[2] or bar[3])
+    int obTime            // Time when OB was formed (for drawing)
+    int validationTime    // Time of the validation bar (for FVG drawing)
+    float high            // OB high price
+    float low             // OB low price
+    bool isLong           // true for bullish, false for bearish
+    bool isSet2           // true if from bar[3] detection
+    string state          // "active", "tested", "breaker", "reversed"
+    int breakerBar        // Bar where it became breaker (if applicable)
+    int reversalBar       // Bar where it became reversed (if applicable)
+    bool isTested         // Whether it has been tested
+    bool hasReachedTestLevel  // Whether price has reached the test threshold (step 1)
+    int testBar           // Bar where testing was completed
+    float gapLevel        // The price level from the validation bar for FVG (new)
+    bool isFVGfilled      // Whether the FVG is filled
+
+// Array to store all OBs
+var array<OBState> allOBs = array.new<OBState>()
+
+// Performance optimization function to clean up old/irrelevant OBs
+cleanupOldOBs() =>
+    if array.size(allOBs) > maxOBs * 0.8  // Start cleanup when approaching limit
+        // Remove old reversed OBs first
+        i = 0
+        while i < array.size(allOBs) and array.size(allOBs) > maxOBs * 0.6
+            ob = array.get(allOBs, i)
+            // Remove reversed OBs that are older than specified bars
+            if ob.state == "reversed" and (bar_index - ob.reversalBar) > barsToKeepReversed
+                array.remove(allOBs, i)
+                continue
+            i += 1
+        
+        // If still too many, remove oldest OBs regardless of state
+        while array.size(allOBs) > maxOBs
+            array.shift(allOBs)  // Remove oldest OB
+
+// Function to add a new OB to tracking
+addOB(barIdx, gapBar, obTime, obHigh, obLow, isLong, isSet2) =>
+    // Clean up if needed before adding
+    if array.size(allOBs) >= maxOBs
+        cleanupOldOBs()
+    
+    newOB = OBState.new()
+    newOB.barIndex := barIdx
+    newOB.gapValidationBar := gapBar
+    newOB.obTime := obTime
+    newOB.validationTime := time
+    newOB.high := obHigh
+    newOB.low := obLow
+    newOB.isLong := isLong
+    newOB.isSet2 := isSet2
+    newOB.state := "active"
+    newOB.breakerBar := 0
+    newOB.reversalBar := 0
+    newOB.isTested := false
+    newOB.hasReachedTestLevel := false
+    newOB.testBar := 0
+    newOB.gapLevel := isLong ? low : high  // Store validation bar's low (bullish) or high (bearish) for FVG
+    newOB.isFVGfilled := false
+    array.push(allOBs, newOB)
+
+// Function to update OB states efficiently (optimized for Pine Script)
+updateOBStates() =>
+    arraySize = array.size(allOBs)
+    if arraySize > 0
+        // Process only recent OBs to improve performance
+        startIdx = math.max(0, arraySize - math.min(arraySize, 200))  // Process max 200 most recent OBs
+        
+        for i = startIdx to arraySize - 1
+            ob = array.get(allOBs, i)
+            
+            // Skip if already in final state
+            if ob.state == "reversed"
+                continue
+            
+            // Calculate how many bars back the gap validation was  
+            barsBackToGap = bar_index - ob.gapValidationBar
+            
+            // Only check OBs where enough time has passed after gap validation
+            if barsBackToGap < 1
+                continue
+            
+            // Efficient current bar checking only (avoid nested loops)
+            // Check for breaker condition on current bar
+            if ob.state == "active" or ob.state == "tested"
+                if ob.isLong  // Bullish OB becomes breaker resistance when close < low
+                    if close < ob.low
+                        ob.state := "breaker"
+                        ob.breakerBar := bar_index
+                        if showBreakerInfo
+                            label.new(bar_index, low - (ta.tr * 2), "BULLISH OB\nBREAKER\nclose=" + str.tostring(close, "#.#####"), color=color.red, style=label.style_label_up, textcolor=color.white, size=size.small)
+                else  // Bearish OB becomes breaker support when close > high
+                    if close > ob.high
+                        ob.state := "breaker"
+                        ob.breakerBar := bar_index
+                        if showBreakerInfo
+                            label.new(bar_index, high + (ta.tr * 2), "BEARISH OB\nBREAKER\nclose=" + str.tostring(close, "#.#####"), color=color.blue, style=label.style_label_up, textcolor=color.white, size=size.small)
+            
+            // Check for reversal condition on current bar
+            else if ob.state == "breaker"
+                if ob.isLong  // Breaker resistance becomes reversed when close > high
+                    if close > ob.high
+                        ob.state := "reversed"
+                        ob.reversalBar := bar_index
+                        if showBreakerInfo
+                            label.new(bar_index, high + (ta.tr * 2), "BULLISH OB\nREVERSED", color=color.black, style=label.style_label_up, textcolor=color.white, size=size.small)
+                else  // Breaker support becomes reversed when close < low  
+                    if close < ob.low
+                        ob.state := "reversed"
+                        ob.reversalBar := bar_index
+                        if showBreakerInfo
+                            label.new(bar_index, low - (ta.tr * 2), "BEARISH OB\nREVERSED", color=color.black, style=label.style_label_up, textcolor=color.white, size=size.small)
+            
+            // Check if OB has been tested on current bar (MQL5-style two-step process)
+            if not ob.isTested and (ob.state == "active")
+                testPrice = ob.isLong ? ob.high - ((ob.high - ob.low) * testPercent / 100) : ob.low + ((ob.high - ob.low) * testPercent / 100)
+                
+                if ob.isLong  // Bullish OB testing
+                    // Step 1: Check if price has reached the test level (dipped below threshold)
+                    if not ob.hasReachedTestLevel and low <= testPrice
+                        ob.hasReachedTestLevel := true
+                    
+                    // Step 2: After reaching test level, check if price returns toward OB level
+                    if ob.hasReachedTestLevel and (low >= ob.low or (low < ob.low and high >= ob.low))
+                        ob.isTested := true
+                        ob.testBar := bar_index
+                        if showBreakerInfo
+                            label.new(bar_index, testPrice, "BULLISH OB\nTESTED", color=color.yellow, style=label.style_label_up, textcolor=color.black, size=size.small)
+                            
+                else  // Bearish OB testing
+                    // Step 1: Check if price has reached the test level (soared above threshold) 
+                    if not ob.hasReachedTestLevel and high >= testPrice
+                        ob.hasReachedTestLevel := true
+                    
+                    // Step 2: After reaching test level, check if price returns toward OB level
+                    if ob.hasReachedTestLevel and (high <= ob.high or (high > ob.high and low <= ob.high))
+                        ob.isTested := true
+                        ob.testBar := bar_index
+                        if showBreakerInfo
+                            label.new(bar_index, testPrice, "BEARISH OB\nTESTED", color=color.yellow, style=label.style_label_up, textcolor=color.black, size=size.small)
+            
+            // Check if FVG is filled
+            if not ob.isFVGfilled
+                float height = math.abs(ob.gapLevel - (ob.isLong ? ob.high : ob.low))
+                float xPercentLevel = ob.isLong ? ob.gapLevel - (height * fillPercent / 100) : ob.gapLevel + (height * fillPercent / 100)
+                if ob.isLong ? (low[1] <= xPercentLevel) : (high[1] >= xPercentLevel)
+                    ob.isFVGfilled := true
+
+// Function to get OB color based on state
+getOBColorFromState(ob) =>
+    switch ob.state
+        "breaker" => ob.isLong ? breakerResistanceColor : breakerSupportColor
+        "reversed" => reversedOBColor
+        "tested" => ob.isLong ? testedBullishOBColor : testedBearishOBColor
+        => 
+            // If OB is active but has been tested, show tested color
+            if ob.isTested
+                ob.isLong ? testedBullishOBColor : testedBearishOBColor
+            else
+                // Otherwise show regular colors
+                ob.isLong ? (ob.isSet2 ? bullishOBColor2 : bullishOBColor) : (ob.isSet2 ? bearishOBColor2 : bearishOBColor)
+
+// Function to draw all tracked OBs (optimized)
+drawAllOBs() =>
+    arraySize = array.size(allOBs)
+    if arraySize > 0
+        // Limit drawing to most recent OBs for performance
+        maxToDraw = math.min(arraySize, 100)  // Draw maximum 100 most recent OBs
+        startIdx = arraySize - maxToDraw
+        
+        for i = startIdx to arraySize - 1
+            ob = array.get(allOBs, i)
+            
+            // Base shouldShow from display mode
+            bool baseShow = switch obDisplayMode
+                "Only Tested" => ob.isTested
+                "Only Untested" => not ob.isTested
+                => true
+            
+            // Apply direction toggle
+            bool directionShow = ob.isLong ? showBullishOBs : showBearishOBs
+            
+            // Final shouldShow for OB
+            bool shouldShowOB = baseShow and directionShow
+            
+            if shouldShowOB
+                obColor = getOBColorFromState(ob)
+                
+                // Determine right edge based on active OBs extended option
+                var int rightTime = 0
+                if showActiveOBsExtended
+                    // Always extend active OBs to current bar when this option is enabled
+                    rightTime := time
+                else
+                    // Use the regular logic for right edge
+                    timeIncrement = timeframe.in_seconds() * 1000 * 10  // 10 bars worth of milliseconds
+                    rightTime := extendToPresent ? time : ob.obTime + timeIncrement
+                
+                box.new(left=ob.obTime, top=ob.high, right=rightTime, bottom=ob.low, border_color=obColor, border_width=0, border_style=line.style_solid, extend=showActiveOBsExtended ? extend.right : (extendToPresent ? extend.right : extend.none), bgcolor=obColor, xloc=xloc.bar_time)
+                
+                // Add state label using time coordinates
+                if showDebugLabels
+                    label.new(ob.obTime, ob.high + (ta.tr * 1), ob.state + (ob.isTested ? "\nTESTED" : ""), color=color.gray, style=label.style_label_down, textcolor=color.white, size=size.tiny, xloc=xloc.bar_time)
+                
+                // Draw FVG if enabled and direction allows
+                bool showFVG = (ob.isLong ? showBullishFVGs : showBearishFVGs) and (ob.isFVGfilled ? showFilledFVGs : true)
+                if showFVG
+                    float fvgTop = ob.isLong ? ob.gapLevel : ob.low
+                    float fvgBottom = ob.isLong ? ob.high : ob.gapLevel
+                    color fvgCol = ob.isFVGfilled ? filledFVGColor : (ob.isLong ? bullFVGColor : bearFVGColor)
+                    int fvgRight = ob.validationTime + timeframe.in_seconds() * 1000
+                    box.new(left=ob.obTime, top=fvgTop, right=fvgRight, bottom=fvgBottom, border_color=fvgCol, border_width=0, border_style=line.style_solid, extend=extend.none, bgcolor=fvgCol, xloc=xloc.bar_time)
+                    
+                    // Add label in the middle of the rectangle only if not filled
+                    if not ob.isFVGfilled
+                        int middleTime = int(math.avg(ob.obTime, ob.validationTime))
+                        float middlePrice = math.avg(fvgTop, fvgBottom)
+                        color textCol = ob.isLong ? color.green : color.orange
+                        string labelText = "FVG"
+                        label.new(middleTime, middlePrice, labelText, xloc=xloc.bar_time, yloc=yloc.price, color=color(na), textcolor=textCol, style=label.style_none, size=size.small)
+                    
+                    // Draw dashed fill level line if enabled and FVG not filled
+                    if showFVGFillLevel and not ob.isFVGfilled
+                        float height = math.abs(fvgTop - fvgBottom)
+                        float fillLevel = ob.isLong ? fvgTop - (height * fillPercent / 100) : fvgBottom + (height * fillPercent / 100)
+                        line.new(x1=ob.obTime, y1=fillLevel, x2=fvgRight, y2=fillLevel, color=color.gray, style=line.style_dashed, xloc=xloc.bar_time)
+
+// ==================================================================================
+// Order Block Detection Logic (Modified)
+// This section contains the main logic for identifying bullish and bearish order blocks
+// ==================================================================================
+
+// Check for Bullish OB at both bar[2] and bar[3]
+[bullishOB_bar2_valid, bullishOB_bar2_set2] = isBullishOB(2)
+[bullishOB_bar3_valid, bullishOB_bar3_set2] = isBullishOB(3)
+
+// Check for Bearish OB at both bar[2] and bar[3]
+[bearishOB_bar2_valid, bearishOB_bar2_set2] = isBearishOB(2)
+[bearishOB_bar3_valid, bearishOB_bar3_set2] = isBearishOB(3)
+
+// Add newly detected OBs to tracking
+if bullishOB_bar2_valid and not prev_bullishOB_bar2_valid
+    addOB(bar_index[2], bar_index[0], time[2], high[2], low[2], true, false)
+    bullOBCount := bullOBCount + 1
+
+if bullishOB_bar3_valid and not prev_bullishOB_bar3_valid
+    addOB(bar_index[3], bar_index[0], time[3], high[3], low[3], true, true)
+    bullOBCount := bullOBCount + 1
+
+if bearishOB_bar2_valid and not prev_bearishOB_bar2_valid
+    addOB(bar_index[2], bar_index[0], time[2], high[2], low[2], false, false)
+    bearOBCount := bearOBCount + 1
+
+if bearishOB_bar3_valid and not prev_bearishOB_bar3_valid
+    addOB(bar_index[3], bar_index[0], time[3], high[3], low[3], false, true)
+    bearOBCount := bearOBCount + 1
+
+// Update previous state tracking
+prev_bullishOB_bar2_valid := bullishOB_bar2_valid
+prev_bullishOB_bar3_valid := bullishOB_bar3_valid
+prev_bearishOB_bar2_valid := bearishOB_bar2_valid
+prev_bearishOB_bar3_valid := bearishOB_bar3_valid
+
+// Update all OB states on each bar
+updateOBStates()
+
+// Draw all tracked OBs
+drawAllOBs()
+
+// Count breakers for status display (optimized)
+bullBreakerCount := 0
+bearBreakerCount := 0
+arraySize = array.size(allOBs)
+if arraySize > 0
+    // Only count recent breakers for performance
+    startIdx = math.max(0, arraySize - 100)  // Check last 100 OBs
+    for i = startIdx to arraySize - 1
+        ob = array.get(allOBs, i)
+        if ob.state == "breaker"
+            if ob.isLong
+                bullBreakerCount := bullBreakerCount + 1
+            else
+                bearBreakerCount := bearBreakerCount + 1
+
+foundAnyBreaker := bullBreakerCount > 0 or bearBreakerCount > 0
+
+// ==================================================================================
+// Legacy Drawing Section (Removed - now handled by drawAllOBs)
+// ==================================================================================
+
+// Debug plots to visualize test levels (keeping for compatibility)
+if bearishOB_bar2_valid and showTestLevels
+    testPrice = getBearishTestPrice(high[2], low[2])
+    line.new(bar_index[2], testPrice, bar_index, testPrice, extend=extend.none, color=color.yellow, style=line.style_dashed)
+
+if bearishOB_bar3_valid and showTestLevels
+    testPrice = getBearishTestPrice(high[3], low[3])
+    line.new(bar_index[3], testPrice, bar_index, testPrice, extend=extend.none, color=color.yellow, style=line.style_dashed)
+
+if bullishOB_bar2_valid and showTestLevels
+    testPrice = getBullishTestPrice(high[2], low[2])
+    line.new(bar_index[2], testPrice, bar_index, testPrice, extend=extend.none, color=color.yellow, style=line.style_dashed)
+
+if bullishOB_bar3_valid and showTestLevels
+    testPrice = getBullishTestPrice(high[3], low[3])
+    line.new(bar_index[3], testPrice, bar_index, testPrice, extend=extend.none, color=color.yellow, style=line.style_dashed)
+
+// Add detailed debug information for condition checking
+if showDebugLabels and (bullishOB_bar2_valid or bearishOB_bar2_valid)
+    debugText = "Bar[2] Conditions:\nBull Valid: " + str.tostring(bullishOB_bar2_valid) + "\nBear Valid: " + str.tostring(bearishOB_bar2_valid)
+    label.new(bar_index[2], high[2] + (ta.tr * 3), debugText, color=color.gray, style=label.style_label_down, textcolor=color.white, size=size.small)
+
+// Add a global status label to track if any breakers were detected
+// This will always be visible regardless of settings
+if barstate.islast
+    statusColor = foundAnyBreaker ? color.lime : color.red
+    
+    // Create the status text based on whether a breaker was found
+    var string statusText = ""
+    if foundAnyBreaker
+        statusText := "✓ BREAKER " + breakerType + " FOUND AT BAR " + str.tostring(lastBreakerBar)
+    else  
+        statusText := "✗ NO BREAKERS DETECTED"
+    
+    // Add count information to status text including array size for monitoring
+    statusText := statusText + "\nBullish OBs: " + str.tostring(bullOBCount) + " | Bearish OBs: " + str.tostring(bearOBCount)
+    statusText := statusText + "\nBull Breakers: " + str.tostring(bullBreakerCount) + " | Bear Breakers: " + str.tostring(bearBreakerCount)
+    statusText := statusText + "\nTracked OBs: " + str.tostring(array.size(allOBs))
+        
+    // Removed status label - label.new(bar_index, low - (ta.tr * 5), statusText, color=statusColor, style=label.style_label_up, textcolor=color.white, size=size.large)
+
+    // Also print debugging info to the log
+    if foundAnyBreaker
+        debugText = "DEBUG INFO - BREAKER " + breakerType + " AT " + str.tostring(lastBreakerBar) + "\nBull Breakers: " + str.tostring(bullBreakerCount) + "\nBear Breakers: " + str.tostring(bearBreakerCount)
+        // Removed debug label - label.new(time[5], high + (ta.tr * 5), debugText, color=color.gray, style=label.style_label_down, textcolor=color.white, size=size.normal, xloc=xloc.bar_time) 
